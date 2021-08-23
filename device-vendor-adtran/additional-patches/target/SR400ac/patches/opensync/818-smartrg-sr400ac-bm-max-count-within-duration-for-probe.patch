@@ -1,0 +1,53 @@
+Index: opensync-2.0.5.0/src/bm/src/bm_events.c
+===================================================================
+--- a/src/bm/src/bm_events.c
++++ b/src/bm/src/bm_events.c
+@@ -239,6 +239,12 @@ bm_events_handle_event(bsal_event_t *eve
+                                                                             ", BLOCKED" : "");
+         last_probe = stats->probe.last;
+         stats->probe.last = now;
++        if (difftime(now, stats->probe.duration_start_time) > BM_CLIENT_PREQ_DURATION_TIME) {
++            stats->probe.duration_start_time = now;
++            stats->probe.probe_cnt = 0;
++        }
++        stats->probe.probe_cnt++;
++
+         if (event->data.probe_req.ssid_null) {
+             stats->probe.last_null = now;
+             stats->probe.null_cnt++;
+@@ -323,9 +329,9 @@ bm_events_handle_event(bsal_event_t *eve
+
+         /* This is short time probe report filtering/limitation */
+         if (abs(stats->probe.last_snr - event->data.probe_req.rssi) <= BM_CLIENT_PREQ_SNR_TH &&
+-            (now - last_probe) < BM_CLIENT_PREQ_TIME_TH) {
+-            LOGD("[%s] %s: %s skip preq report (%d %d) short time", bandstr, ifname, client->mac_addr,
+-                 stats->probe.last_snr, event->data.probe_req.rssi);
++            stats->probe.probe_cnt > BM_CLIENT_PREQ_DURATION_MAX_COUNT) {
++            LOGD("[%s] %s: %s skip more preq report (%d %d) %d in short time", bandstr, ifname, client->mac_addr,
++                  stats->probe.last_snr, event->data.probe_req.rssi, stats->probe.probe_cnt);
+             break;
+         }
+
+Index: opensync-2.0.5.0/src/bm/src/bm_client.h
+===================================================================
+--- a/src/bm/src/bm_client.h
++++ b/src/bm/src/bm_client.h
+@@ -68,6 +68,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBI
+
+ #define BM_CLIENT_PREQ_SNR_TH 3
+ #define BM_CLIENT_PREQ_TIME_TH 3
++#define BM_CLIENT_PREQ_DURATION_TIME 3          // In seconds
++#define BM_CLIENT_PREQ_DURATION_MAX_COUNT 3
+
+ #define BM_CLIENT_SNR_XING_DIFF         5
+
+@@ -196,6 +198,8 @@ typedef struct {
+         time_t                  last_direct;
+         time_t                  last_blocked;
+         uint32_t                last_snr;
++        time_t                  duration_start_time;
++        uint32_t                probe_cnt;
+     } probe;
+
+     struct {
+

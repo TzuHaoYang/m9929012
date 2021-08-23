@@ -1,0 +1,49 @@
+---
+description: wifi support for SmartRG 834-5 
+feeds:
+  - name: wifi
+    path: ../../feeds/wifi-mt76xx
+packages:
+  - batctl-default
+  - kmod-lib-cordic
+  - kmod-hwmon-core
+  - kmod-mt7615e
+  - kmod-btmtkuart
+  - mt7622bt-firmware
+  - kmod-fs-ext4
+  - kmod-fs-vfat
+  - bash
+  - mmc-utils
+  - iwcap
+  - sgdisk
+  - lsblk
+  - gdisk
+  - fdisk
+  - usbutils
+  - file
+  - ethtool
+  - tcpdump
+  - libpam
+  - oath-toolkit
+  - openssh-server-pam
+  - mcproxy
+  - iperf3
+  - openssl-util
+  - uboot-envtools
+diffconfig: |
+  CONFIG_TARGET_PROFILE="DEVICE_smartrg_sr402ac"
+  CONFIG_TARGET_mediatek_mt7622_DEVICE_smartrg_sr402ac=y
+  # CONFIG_PACKAGE_wpad-basic-wolfssl is not set
+  CONFIG_DEFAULT_wpad-basic-wolfssl=n
+  CONFIG_DEFAULT_wpad-basic=y
+  CONFIG_DEVEL=y
+  CONFIG_BUILD_LOG=y
+  CONFIG_NEED_TOOLCHAIN=y
+  CONFIG_MODULES=y
+  CONFIG_BUSYBOX_CONFIG_USLEEP=y
+  CONFIG_BUSYBOX_CONFIG_PKILL=y
+  CONFIG_BUSYBOX_CONFIG_LSPCI=y
+  CONFIG_BUSYBOX_CONFIG_BC=y
+  CONFIG_PACKAGE_libcap=y
+  CONFIG_PACKAGE_miniupnpd=y
+  CONFIG_OPENSYNC_TARGET="834-5"

@@ -1,0 +1,62 @@
+diff --git a/src/pm/src/pm_led.c b/src/pm/src/pm_led.c
+index 1aecd38..fe21c15 100644
+--- a/src/pm/src/pm_led.c
++++ b/src/pm/src/pm_led.c
+@@ -50,6 +50,34 @@ static ovsdb_table_t table_Manager;
+ static ev_timer led_tmr_connecting;
+ static ev_timer led_tmr_connectfail;
+ 
++static enum osp_led_state led_translate_mode = OSP_LED_ST_LAST;
++
++
++
++static enum osp_led_state pm_led_translate_led_config(struct schema_AWLAN_Node *awlan_node)
++{
++    const char *mode;
++
++    mode = SCHEMA_KEY_VAL_NULL(awlan_node->led_config, "mode");
++    if (mode != NULL) {
++        if (!strcmp(mode, "off")) {
++            return OSP_LED_ST_CONNECTED;
++        }
++        else if (!strcmp(mode, "breathe")) {
++            return OSP_LED_ST_CONNECTING;
++        }
++        else if (!strcmp(mode, "pattern")) {
++            return OSP_LED_ST_OPTIMIZE;
++        }
++        else {
++            LOGE("LEDM: Could not translate from mode %s to state", mode);
++            return OSP_LED_ST_IDLE;
++        }
++    }
++
++    LOGE("LEDM: Could not translate from mode to state");
++    return OSP_LED_ST_IDLE;
++}
+ 
+ 
+ static int pm_write_tmp(const char *file, const char *data)
+@@ -169,6 +197,22 @@ static int pm_led_update_led_config(struct schema_AWLAN_Node *awlan_node)
+             clear = true;
+         }
+     }
++    else
++    {
++        state = pm_led_translate_led_config(awlan_node);
++        if (state == OSP_LED_ST_IDLE) {
++            return -1;
++        }
++
++        LOGN("LEDM: Translated state: %s", osp_led_state_to_str(state));
++        if (led_translate_mode != OSP_LED_ST_LAST) {
++            rv = osp_led_clear_state(led_translate_mode);
++            if (rv != 0) {
++                LOGE("LEDM: Could not clear transition LED state: %d", led_translate_mode);
++            }
++        }
++        led_translate_mode = state;
++    }
+ 
+     if (state == OSP_LED_ST_LAST) {
+         return -1;

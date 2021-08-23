@@ -1,0 +1,748 @@
+From a2f39b7ad5550863082443a1942f274569ce1e47 Mon Sep 17 00:00:00 2001
+From: Richard Le <rle@plume.com>
+Date: Fri, 7 May 2021 13:53:50 +0800
+Subject: [PATCH] lib: Fix some incorrect information in NOC.
+
++ Fix rssi, snr of clients
++ Fix max_mcs, max_nss, max_chwidth, phy_mode of clients
++ Add chwidth information for neighbors.
+
+Signed-off-by: Richard Le <rle@plume.com>
+---
+ platform/cfg80211/src/lib/bsal/inc/bsal.h              |   2 +-
+ platform/cfg80211/src/lib/bsal/src/bsal.c              | 247 ++++++++++++++++++++++++++-
+ platform/cfg80211/src/lib/nl80211/inc/nl80211.h        |   2 +
+ platform/cfg80211/src/lib/nl80211/inc/nl80211_stats.h  |   2 -
+ platform/cfg80211/src/lib/nl80211/src/nl80211_bsal.c   |  49 +++---
+ platform/cfg80211/src/lib/nl80211/src/nl80211_client.c |   6 +-
+ platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c   | 115 ++++++++++++-
+ platform/cfg80211/src/lib/target/hostapd_util.c        |  68 ++++++++
+ platform/cfg80211/src/lib/target/hostapd_util.h        |  17 ++
+ 9 files changed, 471 insertions(+), 37 deletions(-)
+
+diff --git a/platform/cfg80211/src/lib/bsal/inc/bsal.h b/src/lib/bsal/inc/bsal.h
+index 6e71539..ba230f7 100644
+--- a/platform/cfg80211/src/lib/bsal/inc/bsal.h
++++ b/platform/cfg80211/src/lib/bsal/inc/bsal.h
+@@ -21,7 +21,7 @@ typedef struct {
+     bsal_rrm_caps_t         rrm_caps;
+     uint8_t                 assoc_ies[BSAL_MAX_ASSOC_IES_LEN];
+     uint16_t                assoc_ies_len;
+-    uint8_t                 rssi;
++    int8_t                  rssi;
+     uint8_t                 snr;
+     uint64_t                tx_bytes;
+     uint64_t                rx_bytes;
+diff --git a/platform/cfg80211/src/lib/bsal/src/bsal.c b/src/lib/bsal/src/bsal.c
+index fe94dfd..165e7c8 100644
+--- a/platform/cfg80211/src/lib/bsal/src/bsal.c
++++ b/platform/cfg80211/src/lib/bsal/src/bsal.c
+@@ -120,10 +120,29 @@ struct ieee80211_mgmt {
+ #define WLAN_EID_HT_OPERATION 61
+ #define WLAN_EID_EXT_CAPAB 127
+ 
++#define IEEE80211_HT_RATE_SIZE (16 * 8)
++#define MAX_VHT_STREAMS (8)
++
+ #define BSAL_CLI_SNR_POLL_INTERVAL 5
+ 
+ #define BM_CLIENT_MAGIC_HWM 1
+ 
++/* HT capability flags */
++#define IEEE80211_HTCAP_C_CHWIDTH40             0x0002
++#define IEEE80211_HTCAP_C_SMPOWERSAVE_STATIC    0x0000 /* Capable of SM Power Save (Static) */
++#define IEEE80211_HTCAP_C_SMPOWERSAVE_DYNAMIC   0x0004 /* Capable of SM Power Save (Dynamic) */
++#define IEEE80211_HTCAP_C_SM_RESERVED           0x0008 /* Reserved */
++#define IEEE80211_HTCAP_C_SMPOWERSAVE_DISABLED            0x000c /* SM enabled, no SM Power Save */
++#define IEEE80211_HTCAP_C_SMPOWERSAVE_MASK      0X000c
++#define IEEE80211_HTCAP_C_SMPOWERSAVE_S         2
++#define IEEE80211_HTCAP_C_GREENFIELD            0x0010
++#define IEEE80211_HTCAP_C_SHORTGI20             0x0020
++#define IEEE80211_HTCAP_C_SHORTGI40             0x0040
++
++#define IEEE80211_VHTCAP_SUP_CHAN_WIDTH_80     0x00000000 /* Does not support 160 or 80+80 */
++#define IEEE80211_VHTCAP_SUP_CHAN_WIDTH_160    0x00000004 /* Supports 160 */
++#define IEEE80211_VHTCAP_SUP_CHAN_WIDTH_80_160 0x00000008 /* Support both 160 or 80+80 */
++
+ struct nl_global_info       bsal_nl_global;
+ static ev_async             bsal_nl_ev_async;
+ static ev_io                bsal_nl_ev_loop;
+@@ -136,6 +155,203 @@ static ds_dlist_t bsal_cli_info_list = DS_DLIST_INIT(bsal_cli_info, node);
+ 
+ int bsal_nl_event_parse(struct nl_msg *msg, void *arg);
+ 
++/* get num of spatial streams from mcs rate */
++static int ht_mcs_to_numstreams(int mcs)
++{
++   int numstreams = 0;
++   /* single stream mcs rates */
++   if ((mcs <= 7) || (mcs == 32))
++       numstreams = 1;
++   /* two streams mcs rates */
++   if (((mcs >= 8) && (mcs <= 15)) || ((mcs >= 33) && (mcs <= 38)))
++       numstreams = 2;
++   /* three streams mcs rates */
++   if (((mcs >= 16) && (mcs <= 23)) || ((mcs >= 39) && (mcs <= 52)))
++       numstreams = 3;
++   /* four streams mcs rates */
++   if (((mcs >= 24) && (mcs <= 31)) || ((mcs >= 53) && (mcs <= 76)))
++       numstreams = 4;
++   return numstreams;
++}
++
++static int get_ht_nss_max(const uint8_t *mcsset)
++{
++    int i;
++    int numstreams = 0, max_numstreams = 0;
++    for (i=0; i < IEEE80211_HT_RATE_SIZE; i++) {
++        if (mcsset[i/8] & (1<<(i%8))) {
++            /* update the num of streams supported */
++            numstreams = ht_mcs_to_numstreams(i);
++            if (max_numstreams < numstreams)
++                max_numstreams = numstreams;
++        }
++    }
++    return max_numstreams;
++}
++
++static int get_ht_mcs_max(const uint8_t *mcsset)
++{
++    int i;
++
++    if (!mcsset)
++        return 0;
++
++    for (i = (IEEE80211_HT_RATE_SIZE - 1); i >= 0; i--)
++    {
++        if (i < 32 && (mcsset[i/8] & (1<<(i%8))))
++            return i;
++    }
++    return 0;
++}
++
++static int get_vht_numstreams(uint16_t map)
++{
++    int i = 0;
++    u_int8_t n;
++    int numstreams = 0;
++
++    for (i = 0; i < MAX_VHT_STREAMS; i++) {
++        n  = map & 0x03;
++        if (n < 3) {
++            /*
++              This is to get nss based on vht_map,
++              for some config e.g. 11,11,01,11, original code will get only nss = 1,
++              which's wrong, nss should be 2 in this case.
++            */
++            numstreams = i + 1;
++        }
++        map = map >> 2;
++    }
++    return numstreams;
++}
++
++static int get_vht_mcs_max(uint16_t map)
++{
++    int i;
++    int max = 0;
++    for(i = 0; i < MAX_VHT_STREAMS; i++) {
++        int a = map & 0x03;
++        switch (a)
++        {
++            case 0: if (max < 7) max = 7; break;
++            case 1: if (max < 8) max = 8; break;
++            case 2: if (max < 9) max = 9; break;
++            default: break;
++        }
++        map >>= 2;
++    }
++    return max;
++}
++
++static bsal_max_chwidth_t get_max_chwidth(hostapd_sta_info_t *sta)
++{
++    bsal_max_chwidth_t max_chwidth = BSAL_MAX_CHWIDTH_20MHZ;
++    if(sta->ht_caps_info & IEEE80211_HTCAP_C_CHWIDTH40) {
++        max_chwidth = BSAL_MAX_CHWIDTH_40MHZ;
++    }
++    if(sta->vht_caps_info > 0) {
++        max_chwidth = BSAL_MAX_CHWIDTH_80MHZ;
++        if(sta->vht_caps_info & IEEE80211_VHTCAP_SUP_CHAN_WIDTH_160) {
++            max_chwidth = BSAL_MAX_CHWIDTH_160MHZ;
++        }
++    }
++    return max_chwidth;
++}
++
++static bsal_phy_mode_t sta_get_phy_mode(bsal_cli_info *data, hostapd_sta_info_t *sta)
++{
++    bsal_phy_mode_t phy_mode = BSAL_PHY_MODE_AUTO;
++    if(sta->vht_caps_info > 0) {
++        switch (data->datarate_info.max_chwidth) {
++            case BSAL_MAX_CHWIDTH_160MHZ:
++                phy_mode = BSAL_PHY_MODE_11AC_VHT160;
++                break;
++            case BSAL_MAX_CHWIDTH_80MHZ:
++                phy_mode = BSAL_PHY_MODE_11AC_VHT80;
++                break;
++            case BSAL_MAX_CHWIDTH_40MHZ:
++                phy_mode = BSAL_PHY_MODE_11AC_VHT40;
++                break;
++            case BSAL_MAX_CHWIDTH_20MHZ:
++                phy_mode = BSAL_PHY_MODE_11AC_VHT20;
++            default:
++                break;
++        }
++    } else if (sta->ht_caps_info > 0) {
++        switch (data->datarate_info.max_chwidth) {
++            case BSAL_MAX_CHWIDTH_40MHZ:
++                phy_mode = BSAL_PHY_MODE_11NG_HT40;
++                break;
++            case BSAL_MAX_CHWIDTH_20MHZ:
++                phy_mode = BSAL_PHY_MODE_11NG_HT20;
++            default:
++                break;
++        }
++    }
++    LOGD("%s: "PRI(os_macaddr_t)": phy_mode=%d",
++        __func__, FMT(os_macaddr_t, data->mac_addr),
++        phy_mode);
++    return phy_mode;
++}
++
++static int sta_get_max_mcs_nss_capab(const char *ifname, const char* mac, bsal_cli_info *data) {
++    uint32_t ht_nss_max = 0;
++    uint32_t ht_mcs_max = 0;
++    uint32_t vht_nss_max = 0;
++    uint32_t vht_mcs_max = 0;
++    uint32_t he_nss_max = 0;
++    uint32_t he_mcs_max = 0;
++    uint32_t mcs_max = 0;
++    uint32_t nss_max = 0;
++
++    hostapd_sta_info_t sta;
++    memset(&sta, 0, sizeof(hostapd_sta_info_t));
++
++    hostapd_sta_info(ifname, mac, &sta);
++
++    ht_nss_max = get_ht_nss_max(sta.ht_mcs_set);
++    ht_mcs_max = get_ht_mcs_max(sta.ht_mcs_set);
++    vht_nss_max = get_vht_numstreams(sta.vht_rx_mcs_map);
++    vht_mcs_max = get_vht_mcs_max(sta.vht_rx_mcs_map);
++    //he_nss_max = get_he_nss_max(he_mcs);
++    //he_mcs_max = get_he_mcs_max(he_mcs);
++
++    LOGD("%s: "PRI(os_macaddr_t)": ht_nss_max=%d, ht_mcs_max=%d, vht_mcs_max=%d, "
++            "vht_nss_max=%d, he_mcs_max=%d, he_nss_max=%d",
++            __func__, FMT(os_macaddr_t, data->mac_addr),
++            ht_nss_max, ht_mcs_max, vht_mcs_max, vht_nss_max,
++            he_mcs_max, he_nss_max);
++
++    /* Max mcs x nss: */
++    mcs_max = ht_mcs_max % 8;
++    nss_max = ht_nss_max;
++    if (vht_mcs_max > mcs_max)
++        mcs_max = vht_mcs_max;
++    if (vht_nss_max > nss_max)
++        nss_max = vht_nss_max;
++    if (he_mcs_max > mcs_max)
++        mcs_max = he_mcs_max;
++    if (he_nss_max > nss_max)
++        nss_max = he_nss_max;
++
++    data->datarate_info.max_chwidth = 0;
++    data->datarate_info.max_streams = 0;
++    data->datarate_info.max_MCS = 0;
++
++    /* get max channel width */
++    data->datarate_info.max_chwidth = get_max_chwidth(&sta);
++    /* get phy_mode with max channel width */
++    data->datarate_info.phy_mode = sta_get_phy_mode(data, &sta);
++    data->datarate_info.max_MCS = mcs_max;
++    data->datarate_info.max_streams = nss_max;
++
++    LOGD("%s: "PRI(os_macaddr_t)": max_MCS=%d, max_streams=%d, max_chwidth=%d, phy_mode=%d",
++        __func__, FMT(os_macaddr_t, data->mac_addr),
++        data->datarate_info.max_MCS,  data->datarate_info.max_streams,
++        data->datarate_info.max_chwidth, data->datarate_info.phy_mode);
++    return 0;
++}
++
+ /***************************************************************************************/
+ 
+ static bsal_add_client(bsal_cli_info *client)
+@@ -748,14 +964,12 @@ int nl_bsal_client_info(
+         info->connected = false;
+         return -1;
+     }
+-
++    char sta_mac[MACADDR_STR_LEN] = {'\0'};
+     memset(info, 0, sizeof(info));
+ 
+     info->is_BTM_supported = client->is_BTM_supported;
+     info->is_RRM_supported = client->is_RRM_supported;
+-    //info->datarate_info.max_chwidth = client->datarate_info.max_chwidth;
+-    //info->datarate_info.max_streams = client->datarate_info.max_streams;
+-    //info->datarate_info.max_MCS = client->datarate_info.max_MCS;
++
+     info->rrm_caps.link_meas = client->rrm_caps.link_meas;
+     info->rrm_caps.neigh_rpt = client->rrm_caps.neigh_rpt;
+     info->rrm_caps.bcn_rpt_passive = client->rrm_caps.bcn_rpt_passive;
+@@ -772,6 +986,31 @@ int nl_bsal_client_info(
+     info->rx_bytes = client->rx_bytes;
+     info->tx_bytes = client->tx_bytes;
+ 
++    /* get nss and mcs */
++    mac_dump(sta_mac, mac_addr);
++    sta_get_max_mcs_nss_capab(ifname, sta_mac, client);
++
++    info->datarate_info.phy_mode = client->datarate_info.phy_mode;
++    info->datarate_info.max_chwidth = client->datarate_info.max_chwidth;
++    info->datarate_info.max_streams = client->datarate_info.max_streams;
++    info->datarate_info.max_MCS = client->datarate_info.max_MCS;
++
++    LOGD("%s: station=" PRI(os_macaddr_t)
++         " rssi[%d] snr[%d]"
++         " max_chwidth[%d] max_streams[%d]"
++         " max_MCS[%d] phy_mode[%d]"
++         " tx_bytes[%ld] rx_bytes[%ld]",
++         __func__,
++         FMT(os_macaddr_t, client->mac_addr),
++         client->rssi,
++         client->snr,
++         client->datarate_info.max_chwidth,
++         client->datarate_info.max_streams,
++         client->datarate_info.max_MCS,
++         client->datarate_info.phy_mode,
++         client->tx_bytes,
++         client->rx_bytes);
++
+     return 0;
+ }
+ 
+diff --git a/platform/cfg80211/src/lib/nl80211/inc/nl80211.h b/src/lib/nl80211/inc/nl80211.h
+index cbb5a7e..5adaa20 100644
+--- a/platform/cfg80211/src/lib/nl80211/inc/nl80211.h
++++ b/platform/cfg80211/src/lib/nl80211/inc/nl80211.h
+@@ -33,6 +33,8 @@
+ 
+ #define IEEE80211_CHAN_MAX  (196 + 1)
+ 
++#define DEFAULT_NOISE_FLOOR (-95)
++
+ enum channel_state {
+     INVALID,
+     ALLOWED,
+diff --git a/platform/cfg80211/src/lib/nl80211/inc/nl80211_stats.h b/src/lib/nl80211/inc/nl80211_stats.h
+index eed25fd..88ab884 100644
+--- a/platform/cfg80211/src/lib/nl80211/inc/nl80211_stats.h
++++ b/platform/cfg80211/src/lib/nl80211/inc/nl80211_stats.h
+@@ -35,8 +35,6 @@ static inline void target_survey_record_free(target_survey_record_t *record)
+         free(record);
+ }
+ 
+-
+-
+ int nl80211_scan_trigger(struct nl_global_info *nl_sm_global,
+                          char *ifname, uint32_t *chan_list, uint32_t chan_num,
+                          int dwell_time, radio_scan_type_t scan_type,
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_bsal.c b/src/lib/nl80211/src/nl80211_bsal.c
+index 62480b7..6aab137 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_bsal.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_bsal.c
+@@ -12,8 +12,6 @@
+ 
+ #include "bsal.h"
+ 
+-#define DEFAULT_NOISE_FLOOR (-95)
+-
+ int nl_resp_parse_ssid(struct nl_msg *msg, void *arg)
+ {
+     char *ssid = arg;
+@@ -81,6 +79,7 @@ int nl_resp_parse_noise(struct nl_msg *msg, void *arg)
+         return NL_SKIP;
+ 
+     noise_info->noise = (int8_t) nla_get_u8(infoattr[NL80211_SURVEY_INFO_NOISE]);
++    LOGD("%s: noise %d dBm", __func__, noise_info->noise);
+ 
+     return NL_SKIP;
+ }
+@@ -162,7 +161,7 @@ int nl_req_get_sta_rssi(struct nl_global_info *bsal_nl_global,
+     return 0;
+ }
+ 
+-void nl_resp_parse_sta_info(struct nl_msg *msg, void *arg)
++int nl_resp_parse_sta_info(struct nl_msg *msg, void *arg)
+ {
+     int ies_len;
+     int if_idx = -1;
+@@ -171,19 +170,22 @@ void nl_resp_parse_sta_info(struct nl_msg *msg, void *arg)
+     bsal_cli_info *data = (bsal_cli_info *) arg;
+     struct nlattr *sinfo[NL80211_STA_INFO_MAX + 1] = { };
+     static struct nla_policy stats_policy[NL80211_STA_INFO_MAX + 1] = {
+-        [NL80211_STA_INFO_SIGNAL_AVG]    = { .type = NLA_U8     },
+-        [NL80211_STA_INFO_RX_BYTES]      = { .type = NLA_U32    },
+-        [NL80211_STA_INFO_TX_BYTES]      = { .type = NLA_U32    },
++        [NL80211_STA_INFO_INACTIVE_TIME] = { .type = NLA_U32 },
++        [NL80211_STA_INFO_RX_BYTES] = { .type = NLA_U32 },
++        [NL80211_STA_INFO_TX_BYTES] = { .type = NLA_U32 },
++        [NL80211_STA_INFO_RX_BYTES64] = { .type = NLA_U64 },
++        [NL80211_STA_INFO_TX_BYTES64] = { .type = NLA_U64 },
++        [NL80211_STA_INFO_SIGNAL] = { .type = NLA_U8 },
+     };
+ 
+     memset(tb, 0, sizeof(tb));
+     nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(gnlh, 0), genlmsg_attrlen(gnlh, 0), NULL);
+ 
+     if (!tb[NL80211_ATTR_STA_INFO])
+-        return;
++        return NL_SKIP;
+ 
+     if (nla_parse_nested(sinfo, NL80211_STA_INFO_MAX, tb[NL80211_ATTR_STA_INFO], stats_policy))
+-        return;
++        return NL_SKIP;
+ 
+     if (strlen(data->ifname))
+         if_idx = util_sys_ifname_to_idx(data->ifname);
+@@ -191,19 +193,30 @@ void nl_resp_parse_sta_info(struct nl_msg *msg, void *arg)
+         if_idx = nla_get_u32(tb[NL80211_ATTR_IFINDEX]);
+ 
+     data->rssi = 0;
+-    if (sinfo[NL80211_STA_INFO_SIGNAL_AVG])
+-        data->rssi = (int8_t) nla_get_u8(sinfo[NL80211_STA_INFO_SIGNAL_AVG]);
+ 
+-    if (sinfo[NL80211_STA_INFO_RX_BYTES])
+-        data->rx_bytes = nla_get_u32(sinfo[NL80211_STA_INFO_RX_BYTES]);
+-
+-    if (sinfo[NL80211_STA_INFO_TX_BYTES])
+-        data->tx_bytes = nla_get_u32(sinfo[NL80211_STA_INFO_TX_BYTES]);
++    if (sinfo[NL80211_STA_INFO_RX_BYTES64])
++        data->rx_bytes =
++                (uint64_t) nla_get_u64(sinfo[NL80211_STA_INFO_RX_BYTES64]);
++    else if (sinfo[NL80211_STA_INFO_RX_BYTES])
++        data->rx_bytes =
++                (uint64_t) nla_get_u32(sinfo[NL80211_STA_INFO_RX_BYTES]);
++
++    if (sinfo[NL80211_STA_INFO_TX_BYTES64])
++        data->tx_bytes =
++                (uint64_t) nla_get_u64(sinfo[NL80211_STA_INFO_TX_BYTES64]);
++    else if (sinfo[NL80211_STA_INFO_TX_BYTES])
++        data->tx_bytes =
++                (uint64_t) nla_get_u32(sinfo[NL80211_STA_INFO_TX_BYTES]);
++
++    if (sinfo[NL80211_STA_INFO_SIGNAL]) {
++        data->rssi =
++            (int8_t) nla_get_u8(sinfo[NL80211_STA_INFO_SIGNAL]);
++    }
+ 
+     data->connected = true;
+ 
+     if (!tb[NL80211_ATTR_IE])
+-        return;
++        return NL_OK;
+ 
+     ies_len = nla_len(tb[NL80211_ATTR_IE]);
+     if ((ies_len > 0) && (ies_len < sizeof(data->assoc_ies))) {
+@@ -213,8 +226,7 @@ void nl_resp_parse_sta_info(struct nl_msg *msg, void *arg)
+         LOGI("%s: received assoc ie length[%d] exceeds bsal assoc_ies buffer len[%d]",
+              __func__, ies_len, sizeof(data->assoc_ies));
+     }
+-
+-    return;
++    return NL_OK;
+ }
+ 
+ int nl_req_get_sta_info(struct nl_global_info *bsal_nl_global, const char *ifname, const uint8_t *mac_addr, bsal_cli_info *data)
+@@ -235,7 +247,6 @@ int nl_req_get_sta_info(struct nl_global_info *bsal_nl_global, const char *ifnam
+     nlmsg_send_and_recv(bsal_nl_global, msg, nl_resp_parse_sta_info, data);
+     if (data->rssi)
+         data->snr = rssi_to_snr(bsal_nl_global, if_index, data->rssi);
+-
+     return 0;
+ }
+ 
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c b/src/lib/nl80211/src/nl80211_client.c
+index 69febf0..2bae703 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c
+@@ -236,7 +236,7 @@ bool nl80211_client_stats_convert(radio_entry_t *radio_cfg, target_client_record
+     memcpy(client_record->info.mac, data_new->info.mac, sizeof(data_new->info.mac));
+     memcpy(client_record->info.essid, data_new->info.essid, sizeof(radio_cfg->if_name));
+ 
+-    client_record->stats.rssi       = data_new->stats.rssi;
++    client_record->stats.rssi       = data_new->stats.rssi - DEFAULT_NOISE_FLOOR; // cloud considers rssi as snr
+     client_record->stats.rate_tx    = data_new->stats.rate_tx;
+     client_record->stats.rate_rx    = data_new->stats.rate_rx;
+     client_record->stats.bytes_tx   = data_new->stats.bytes_tx   - data_old->stats.bytes_tx;
+@@ -248,10 +248,10 @@ bool nl80211_client_stats_convert(radio_entry_t *radio_cfg, target_client_record
+     client_record->stats.errors_rx  = data_new->stats.errors_rx  - data_old->stats.errors_rx;
+ 
+     LOGT("Calculated %s client delta stats for "MAC_ADDRESS_FORMAT" "
+-         "bytes_tx=%llu",
++         "bytes_tx=%llu rssi=%d",
+          radio_get_name_from_type(radio_cfg->type),
+          MAC_ADDRESS_PRINT(data_new->info.mac),
+-         client_record->stats.bytes_tx);
++         client_record->stats.bytes_tx, client_record->stats.rssi);
+ 
+     return true;
+ }
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c b/src/lib/nl80211/src/nl80211_scan.c
+index 4df9322..d8b6fc9 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c
+@@ -13,6 +13,94 @@
+ #include <netlink/genl/genl.h>
+ #include <net/if.h>
+ 
++#define ARRAY_SIZE(ar) (sizeof(ar)/sizeof(ar[0]))
++
++struct parse_ies_data {
++	unsigned char *ie;
++	int ielen;
++};
++
++struct ie_parse {
++    uint8_t has_parser;
++	void (*parse)(const uint8_t type, uint8_t len, const uint8_t *data,
++		      const struct parse_ies_data *ie_buffer, dpp_neighbor_record_list_t *neighbor);
++	uint8_t minlen;
++    uint8_t maxlen;
++};
++
++static void parse_ht_oper(const uint8_t type, uint8_t len, const uint8_t *data,
++                const struct parse_ies_data *ie_buffer, dpp_neighbor_record_list_t *neighbor)
++{
++    /* HT information */
++    int sta_chan_width = (data[1] & 0x4) >> 2;
++    if(sta_chan_width == 0) {
++        /* 20 MHz */
++        neighbor->entry.chanwidth = RADIO_CHAN_WIDTH_20MHZ;
++    } else {
++        /* any */ // TODO : need to consider other info
++        neighbor->entry.chanwidth = RADIO_CHAN_WIDTH_40MHZ;
++    }
++}
++
++static void parse_vht_oper(const uint8_t type, uint8_t len, const uint8_t *data,
++                const struct parse_ies_data *ie_buffer, dpp_neighbor_record_list_t *neighbor)
++{
++    /* VHT operation */
++    switch (data[0]) {
++        case 0:
++            /* 20 or 40 MHz */ // TODO : need to consider other info
++            neighbor->entry.chanwidth = RADIO_CHAN_WIDTH_40MHZ;
++            break;
++        case 1:
++            neighbor->entry.chanwidth = RADIO_CHAN_WIDTH_80MHZ;
++            break;
++        case 2:
++            neighbor->entry.chanwidth = RADIO_CHAN_WIDTH_160MHZ;
++            break;
++        case 3:
++            neighbor->entry.chanwidth = RADIO_CHAN_WIDTH_80_PLUS_80MHZ;
++            break;
++        default:
++            break;
++    }
++}
++
++static void parse_ext_capab(const uint8_t type, uint8_t len, const uint8_t *data,
++                const struct parse_ies_data *ie_buffer, dpp_neighbor_record_list_t *neighbor)
++{
++    /* Extended capabilities */
++}
++
++static const struct ie_parse ieparsers[] = {
++	[61] = { 1, parse_ht_oper, 22, 22, },
++	[192] = { 1, parse_vht_oper, 5, 255, },
++	[127] = { 1, parse_ext_capab, 0, 255,  },
++};
++
++static void parse_ie(const struct ie_parse *p, const uint8_t type, uint8_t len,
++            const uint8_t *data,
++            const struct parse_ies_data *ie_buffer,
++            dpp_neighbor_record_list_t *neighbor
++        )
++{
++    int i;
++
++    if (!p->parse)
++        return;
++
++    if (len < p->minlen || len > p->maxlen) {
++        if (len > 1) {
++            LOGT("<invalid: %d bytes:", len);
++        } else if (len)
++            LOGT("<invalid: 1 byte: %.02x>", data[0]);
++        else
++            LOGT("<invalid: no data>");
++        return;
++    }
++
++    p->parse(type, len, data, ie_buffer, neighbor);
++}
++
+ static struct avl_tree nl80211_scan_tree = AVL_TREE_INIT(nl80211_scan_tree, avl_strcmp, false, NULL);
+ 
+ static int nl80211_scan_trigger_recv(struct nl_msg *msg, void *arg)
+@@ -230,21 +318,32 @@ static int nl80211_scan_dump_recv(struct nl_msg *msg, void *arg)
+         unsigned char *bssie = nla_data(bss[NL80211_BSS_INFORMATION_ELEMENTS]);
+         int len;
+ 
++        struct parse_ies_data ie_buffer = {
++            .ie = bssie,
++            .ielen = bssielen
++        };
++
+         while (bssielen >= 2 && bssielen >= bssie[1]) {
+-            switch (bssie[0]) {
+-            case 0: /* SSID */
+-            case 114: /* Mesh ID */
++            if ((bssie[0] < ARRAY_SIZE(ieparsers)) &&
++                (ieparsers[bssie[0]].has_parser == 1))
++            {
++                parse_ie(&ieparsers[bssie[0]],
++                            bssie[0], bssie[1], bssie + 2, &ie_buffer, neighbor);
++            } else if (bssie[0] == 0 || bssie[0] == 114) {
++                /* SSID or Mesh ID*/
+                 len = min(bssie[1], 32 + 1);
+                 memcpy(neighbor->entry.ssid, bssie + 2, len);
+                 neighbor->entry.ssid[len] = 0;
+-                break;
+             }
+-        bssielen -= bssie[1] + 2;
+-        bssie += bssie[1] + 2;
++            bssielen -= bssie[1] + 2;
++            bssie += bssie[1] + 2;
+         }
+     }
+-    LOGT("Parsed %s SSID %s",
+-         radio_get_name_from_type(nl_call_param->type), neighbor->entry.ssid);
++    LOGT("%s Parsed %s SSID %s chanwidth %d",
++        __func__,
++         radio_get_name_from_type(nl_call_param->type),
++         neighbor->entry.ssid,
++         neighbor->entry.chanwidth);
+ 
+     ds_dlist_insert_tail(nl_call_param->list, neighbor);
+     return NL_OK;
+diff --git a/platform/cfg80211/src/lib/target/hostapd_util.c b/src/lib/target/hostapd_util.c
+index 3193d49..970d2c1 100644
+--- a/platform/cfg80211/src/lib/target/hostapd_util.c
++++ b/platform/cfg80211/src/lib/target/hostapd_util.c
+@@ -1,5 +1,6 @@
+ #define _GNU_SOURCE
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #include "os.h"
+ #include "log.h"
+@@ -372,3 +373,70 @@ int hostapd_chan_switch(const char *phy,
+ 
+     return 0;
+ }
++
++static void util_hex_to_bytes(const char* hex, uint8_t* bytes, int length) {
++
++    if(!bytes)
++        return;
++    const char *pos = hex;
++    for(int i = 0; i < length ; i++) {
++        sscanf(pos, "%2hhx", &bytes[i]);
++        pos += 2;
++    }
++}
++
++bool hostapd_sta_info(char *vif, const char* mac, hostapd_sta_info_t* sta)
++{
++    char sockdir[64] = "";
++    char *sta_info = NULL;
++    const char *k;
++    const char *v;
++    const char *vht_caps_info = NULL;
++    const char *rx_vht_mcs_map = NULL;
++    const char *tx_vht_mcs_map = NULL;
++    const char *ht_mcs_bitmask = NULL;
++    const char *ht_caps_info = NULL;
++    char *kv;
++    char phy[32] = {'\0'};
++    if (util_wifi_get_parent(vif, phy, sizeof(phy)))
++        return false;
++    if (!sta)
++        return false;
++
++    snprintf(sockdir, sizeof(sockdir), "%s/hostapd-%s", HOSTAPD_CONTROL_PATH_DEFAULT, phy);
++
++    sta_info = HOSTAPD_CLI(sockdir, vif, "sta", mac);
++    if (!sta_info || (!strlen(sta_info)))
++        return false;
++
++    while ((kv = strsep(&sta_info, "\r\n"))) {
++        if ((k = strsep(&kv, "=")) && (v = strsep(&kv, ""))) {
++            if (!strcmp(k, "vht_caps_info"))
++                vht_caps_info = v;
++            if (!strcmp(k, "rx_vht_mcs_map"))
++                rx_vht_mcs_map = v;
++            if (!strcmp(k, "tx_vht_mcs_map"))
++                tx_vht_mcs_map = v;
++            if (!strcmp(k, "ht_caps_info"))
++                ht_caps_info = v;
++            if (!strcmp(k, "ht_mcs_bitmask"))
++                ht_mcs_bitmask = v;
++        }
++    }
++    LOGD("%s: vht_caps_info[%s], rx_vht_mcs_map[%s], tx_vht_mcs_map=[%s],"
++            " ht_caps_info[%s], ht_mcs_bitmask=[%s]",
++         __func__, vht_caps_info, rx_vht_mcs_map, tx_vht_mcs_map,
++                ht_caps_info, ht_mcs_bitmask);
++
++    if (vht_caps_info)
++        sta->vht_caps_info = (uint32_t) strtoul(vht_caps_info, NULL, 16);
++    if (rx_vht_mcs_map)
++        sta->vht_rx_mcs_map = (uint16_t) strtoul(rx_vht_mcs_map, NULL, 16);
++    if (tx_vht_mcs_map)
++        sta->vht_tx_mcs_map = (uint16_t) strtoul(tx_vht_mcs_map, NULL, 16);
++    if (ht_caps_info)
++        sta->ht_caps_info = (uint16_t) strtoul(ht_caps_info, NULL, 16);
++    if (ht_mcs_bitmask)
++        util_hex_to_bytes(ht_mcs_bitmask, sta->ht_mcs_set, HT_CAP_MCS_BITMASK_LEN);
++    return true;
++}
+\ No newline at end of file
+diff --git a/platform/cfg80211/src/lib/target/hostapd_util.h b/src/lib/target/hostapd_util.h
+index 6c46d65..a31b68f 100644
+--- a/platform/cfg80211/src/lib/target/hostapd_util.h
++++ b/platform/cfg80211/src/lib/target/hostapd_util.h
+@@ -12,6 +12,21 @@
+ #define HOSTAPD_CLI(sockdir, vif, ...) EXEC(CMD_TIMEOUT("hostapd_cli", "-p", sockdir, "-i", vif, ## __VA_ARGS__))
+ 
+ #define SSID_MAX_LEN 32
++#define MAC_STR_LEN (12 + 5 + 1)
++
++#define VHT_CAP_MCS_MAP_NSS_MAX 8
++#define HT_CAP_MCS_SET_LEN 16
++#define HT_CAP_MCS_BITMASK_LEN 10
++#define IEEE80211_HT_RATE_SIZE  128
++
++typedef struct
++{
++    uint32_t vht_caps_info;
++    uint16_t vht_tx_mcs_map;
++    uint16_t vht_rx_mcs_map;
++    uint16_t ht_caps_info;
++    uint8_t ht_mcs_set[HT_CAP_MCS_SET_LEN];
++} hostapd_sta_info_t;
+ 
+ bool hostapd_client_disconnect(const char *interface, const char *disc_type,
+                                const char *mac_str, uint8_t reason);
+@@ -19,4 +34,6 @@ bool hostapd_btm_request(const char *interface, const char *btm_req_cmd);
+ bool hostapd_rrm_set_neighbor(const char *interface, const char *bssid, const char *hex_ssid, const char *nr);
+ bool hostapd_rrm_remove_neighbor(const char *interface, const char *bssid);
+ 
++bool hostapd_sta_info(char *vif, const char* mac, hostapd_sta_info_t* sta);
++
+ #endif /* HOSTAPD_UTIL_H_INCLUDED */
+-- 
+2.25.1
+

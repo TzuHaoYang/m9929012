@@ -1,0 +1,82 @@
+--- a/platform/cfg80211/src/lib/target/hostapd_util.c
++++ b/platform/cfg80211/src/lib/target/hostapd_util.c
+@@ -136,6 +137,7 @@
+ {
+     char    hostapd_cmd[1024];
+     bool    ret = false;
++    bool    status;
+     char    phy[32];
+ 
+     if (util_wifi_get_parent(vif, phy, sizeof(phy)))
+@@ -150,6 +150,17 @@ bool hostapd_deny_acl_update(const char
+         LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
+     }
+ 
++    snprintf(hostapd_cmd, sizeof(hostapd_cmd),
++            "timeout -s KILL 5 hostapd_cli -p %s/hostapd-%s -i %s "
++            "set macaddr_acl 0",
++            HOSTAPD_CONTROL_PATH_DEFAULT, phy, vif);
++
++    status = !cmd_log(hostapd_cmd);
++    if (!status) {
++        ret = false;
++        LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
++    }
++
+     return ret;
+ }
+ 
+@@ -175,6 +186,17 @@ int hostapd_mac_acl_clear(const char *ph
+     status = !cmd_log(hostapd_cmd);
+     if (!status)
+         LOGI("hostapd_cli execution failed: %s", hostapd_cmd);
++    
++    snprintf(hostapd_cmd, sizeof(hostapd_cmd),
++            "timeout -s KILL 5 hostapd_cli -p %s/hostapd-%s -i %s "
++            "set macaddr_acl 0",
++            HOSTAPD_CONTROL_PATH_DEFAULT, phy, vif);
++
++    status = !cmd_log(hostapd_cmd);
++    if (!status) {
++        LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
++    }
++
+ 
+     return 0;
+ }
+@@ -200,6 +222,17 @@ bool hostapd_mac_acl_accept_add(const ch
+             ret = false;
+             LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
+         }
++        
++	snprintf(hostapd_cmd, sizeof(hostapd_cmd),
++            "timeout -s KILL 3 hostapd_cli -p %s/hostapd-%s -i %s "
++            "set macaddr_acl 1",
++            HOSTAPD_CONTROL_PATH_DEFAULT, phy, vif);
++
++        status = !cmd_log(hostapd_cmd);
++        if (!status) {
++            ret = false;
++            LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
++        }
+     }
+ 
+     free(p);
+@@ -225,6 +258,17 @@ bool hostapd_mac_acl_deny_add(const char
+ 
+         status = !cmd_log(hostapd_cmd);
+         if (!status) {
++            ret = false;
++            LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
++        }
++
++        snprintf(hostapd_cmd, sizeof(hostapd_cmd),
++            "timeout -s KILL 3 hostapd_cli -p %s/hostapd-%s -i %s "
++            "set macaddr_acl 0",
++            HOSTAPD_CONTROL_PATH_DEFAULT, phy, vif);
++
++        status = !cmd_log(hostapd_cmd);
++        if (!status) {
+             ret = false;
+             LOGE("hostapd_cli execution failed: %s", hostapd_cmd);
+         }

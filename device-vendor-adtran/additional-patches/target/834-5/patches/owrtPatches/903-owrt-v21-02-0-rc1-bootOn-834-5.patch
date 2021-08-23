@@ -1,0 +1,3274 @@
+diff --git a/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-bananapi-bpi-r64-rootdisk.dts b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-bananapi-bpi-r64-rootdisk.dts
+index 36d908652d..614cbe2c6e 100644
+--- a/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-bananapi-bpi-r64-rootdisk.dts
++++ b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-bananapi-bpi-r64-rootdisk.dts
+@@ -22,7 +22,7 @@
+ 
+ 	chosen {
+ 		stdout-path = "serial0:115200n8";
+-		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyS0,115200n1 swiotlb=512 root=/dev/mmcblk0p7 rootfstype=squashfs,f2fs";
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyS0,115200n1 swiotlb=512 root=/dev/mmcblk0p6 rootfstype=squashfs,f2fs block2mtd.block2mtd=/dev/mmcblk0,65536,eMMC,5 mtdparts=eMMC:1m@0x1c0000(factory)";
+ 	};
+ 
+ 	cpus {
+@@ -542,12 +542,16 @@
+ 	status = "okay";
+ };
+ 
++&rtc {
++       status = "disabled";
++};
++
+ &sata {
+-	status = "disable";
++	status = "disabled";
+ };
+ 
+ &sata_phy {
+-	status = "disable";
++	status = "disabled";
+ };
+ 
+ &spi0 {
+@@ -589,3 +593,8 @@
+ 	pinctrl-0 = <&watchdog_pins>;
+ 	status = "okay";
+ };
++
++
++&wmac {
++       status = "okay";
++};
+diff --git a/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-elecom-wrc-2533gent.dts b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-elecom-wrc-2533gent.dts
+index 2ac1c6a671..50fd46503e 100644
+--- a/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-elecom-wrc-2533gent.dts
++++ b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-elecom-wrc-2533gent.dts
+@@ -139,6 +139,31 @@
+ 		reg = <0 0x40000000 0 0x3F000000>;
+ 	};
+ 
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		bootdata_reserved: bootdata@0x45000000 {
++			no-map;
++			reg = <0x0 0x45000000 0x0 0x00001000>;
++		};
++		ramoops_reserved: ramoops1@0x45001000 {
++			no-map;
++			compatible = "ramoops";
++			reg = <0x0 0x45001000 0x0 0x00140000>;
++			ftrace-size  = <0x20000>;
++			record-size  = <0x20000>;
++			console-size = <0x20000>;
++			pmsg-size    = <0x80000>;
++		};
++	};
++
++	bootdata {
++		compatible = "bootdata";
++		memory-region = <&bootdata_reserved>;
++	};
++
+ 	reg_1p8v: regulator-1p8v {
+ 		compatible = "regulator-fixed";
+ 		regulator-name = "fixed-1.8V";
+@@ -514,6 +539,8 @@
+ 		spi-max-frequency = <104000000>;
+ 		reg = <0>;
+ 
++		mediatek,bmt-v2;
++
+ 		partitions {
+ 			compatible = "fixed-partitions";
+ 			#address-cells = <1>;
+@@ -551,12 +578,17 @@
+ 
+ 			partition@200000 {
+ 				label = "firmware";
+-				reg = <0x200000 0x2000000>;
++				reg = <0x200000 0x4000000>;
++			};
++
++			partition@4200000 {
++				label = "nand";
++				reg = <0x4200000 0x3200000>;
+ 			};
+ 
+-			partition@2200000 {
+-				label = "reserved";
+-				reg = <0x2200000 0x4000000>;
++			partition@7400000 {
++				label = "mfginfo";
++				reg = <0x7400000 0x100000>;
+ 			};
+ 		};
+ 	};
+diff --git a/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-smartrg-sr402ac.dts b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-smartrg-sr402ac.dts
+new file mode 100644
+index 0000000000..5ffd30c877
+--- /dev/null
++++ b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-smartrg-sr402ac.dts
+@@ -0,0 +1,746 @@
++/*
++ * Copyright (c) 2018 MediaTek Inc.
++ * Author: Ryder Lee <ryder.lee@mediatek.com>
++ *
++ * SPDX-License-Identifier: (GPL-2.0 OR MIT)
++ */
++
++/dts-v1/;
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mt7622.dtsi"
++#include "mt6380.dtsi"
++
++/ {
++	model = "SmartRG SR402ac";
++	compatible = "smartrg,sr402ac", "mediatek,mt7622";
++
++	aliases {
++		serial0 = &uart0;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyS0,115200n1 swiotlb=512 root=/dev/mmcblk0p6 rootfstype=squashfs,f2fs block2mtd.block2mtd=/dev/mmcblk0,65536,eMMC,5 mtdparts=eMMC:1m@0x1c0000(factory)";
++	};
++
++	cpus {
++		cpu@0 {
++			proc-supply = <&mt6380_vcpu_reg>;
++			sram-supply = <&mt6380_vm_reg>;
++		};
++
++		cpu@1 {
++			proc-supply = <&mt6380_vcpu_reg>;
++			sram-supply = <&mt6380_vm_reg>;
++		};
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++/*		factory {
++			label = "factory";
++			linux,code = <BTN_0>;
++			gpios = <&pio 5 GPIO_ACTIVE_LOW>;
++		};
++*/
++		reset {
++			label = "reset";
++			linux,code = <KEY_RESTART>;
++			gpios = <&pio 5 GPIO_ACTIVE_LOW>;
++		};
++
++		wps {
++			label = "wps";
++			linux,code = <KEY_WPS_BUTTON>;
++			gpios = <&pio 102 GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	gsw: gsw@0 {
++		compatible = "mediatek,mt753x";
++		mediatek,ethsys = <&ethsys>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		system_red {
++			label = "red";
++			gpios = <&pio 51 GPIO_ACTIVE_LOW>;
++			default-state = "off";
++		};
++
++		system_green {
++			label = "green";
++			gpios = <&pio 52 GPIO_ACTIVE_LOW>;
++			default-state = "off";
++		};
++
++		system_blue {
++			label = "blue";
++			gpios = <&pio 75 GPIO_ACTIVE_LOW>;
++			default-state = "off";
++		};
++
++		system_white {
++			label = "white";
++			gpios = <&pio 98 GPIO_ACTIVE_LOW>;
++			default-state = "off";
++		};
++
++		power {
++			label = "power";
++			gpios = <&pio 89 GPIO_ACTIVE_LOW>;
++			default-state = "on";
++		};
++	};
++
++	memory {
++		reg = <0x0 0x40000000 0x0 0x40000000>;
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		bootdata_reserved: bootdata@45000000 {
++			no-map;
++			reg = <0x0 0x45000000 0x0 0x00001000>;
++		};
++		ramoops_reserved: ramoops1@45001000 {
++			no-map;
++			compatible = "ramoops";
++			reg = <0x0 0x45001000 0x0 0x00140000>;
++			ftrace-size = <0x20000>;
++			record-size = <0x20000>;
++			console-size = <0x20000>;
++			pmsg-size = <0x80000>;
++		};
++	};
++
++	bootdata {
++		compatible = "bootdata";
++		memory-region = <&bootdata_reserved>;
++	};
++
++	reg_1p8v: regulator-1p8v {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-1.8V";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++	};
++
++	reg_3p3v: regulator-3p3v {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-3.3V";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	reg_5v: regulator-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-5V";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		gpio = <&pio 0 GPIO_ACTIVE_LOW>;
++		enable-active-high;
++		/* regulator-boot-on; */
++		/* regulator-always-on; */
++	};
++};
++
++&bch {
++	status = "okay";
++};
++
++&btif {
++	status = "okay";
++};
++
++&cir {
++	pinctrl-names = "default";
++	pinctrl-0 = <&irrx_pins>;
++	status = "okay";
++};
++
++&eth {
++	status = "okay";
++
++	gmac0: mac@0 {
++		compatible = "mediatek,eth-mac";
++		reg = <0>;
++		phy-mode = "2500base-x";
++
++		fixed-link {
++			speed = <2500>;
++			full-duplex;
++			pause;
++		};
++	};
++
++	gmac1: mac@1 {
++		compatible = "mediatek,eth-mac";
++		reg = <1>;
++		phy-mode = "rgmii";
++
++		fixed-link {
++			speed = <1000>;
++			full-duplex;
++			pause;
++		};
++	};
++
++	mdio: mdio-bus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		switch@0 {
++			compatible = "mediatek,mt7531";
++			reg = <0>;
++			reset-gpios = <&pio 54 0>;
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					label = "wan";
++				};
++
++				port@1 {
++					reg = <1>;
++					label = "lan3";
++				};
++
++				port@2 {
++					reg = <2>;
++					label = "lan2";
++				};
++
++				port@3 {
++					reg = <3>;
++					label = "lan1";
++				};
++
++				port@4 {
++					reg = <4>;
++					label = "lan0";
++				};
++
++				port@6 {
++					reg = <6>;
++					label = "cpu";
++					ethernet = <&gmac0>;
++					phy-mode = "2500base-x";
++
++					fixed-link {
++						speed = <2500>;
++						full-duplex;
++						pause;
++					};
++				};
++			};
++		};
++	};
++};
++
++&gsw {
++        mediatek,mdio = <&mdio>;
++        mediatek,portmap = "wllll";
++        mediatek,mdio_master_pinmux = <0>;
++        reset-gpios = <&pio 54 0>;
++        interrupt-parent = <&pio>;
++        interrupts = <53 IRQ_TYPE_LEVEL_HIGH>;
++	status = "disabled";
++
++        port5: port@5 {
++                compatible = "mediatek,mt753x-port";
++                reg = <5>;
++                phy-mode = "rgmii";
++                fixed-link {
++                        speed = <1000>;
++                        full-duplex;
++                };
++        };
++
++        port6: port@6 {
++                compatible = "mediatek,mt753x-port";
++                reg = <6>;
++                phy-mode = "sgmii";
++                fixed-link {
++                        speed = <2500>;
++                        full-duplex;
++                };
++        };
++};
++
++&i2c1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c1_pins>;
++	status = "okay";
++};
++
++&i2c2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c2_pins>;
++	status = "okay";
++};
++
++&mmc0 {
++	pinctrl-names = "default", "state_uhs";
++	pinctrl-0 = <&emmc_pins_default>;
++	pinctrl-1 = <&emmc_pins_uhs>;
++	status = "okay";
++	bus-width = <8>;
++	max-frequency = <50000000>;
++	cap-mmc-highspeed;
++	mmc-hs200-1_8v;
++	vmmc-supply = <&reg_3p3v>;
++	vqmmc-supply = <&reg_1p8v>;
++	assigned-clocks = <&topckgen CLK_TOP_MSDC30_0_SEL>;
++	assigned-clock-parents = <&topckgen CLK_TOP_UNIV48M>;
++	non-removable;
++
++	emmc@0 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		compatible = "mmc-card";
++		reg = <0>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			emmc_factory: partition@1c0000 {
++				label = "factory";
++				reg = <0x01c0000 0x00100000>;
++			};
++		};
++	};
++};
++
++&pcie0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie0_pins>;
++	status = "okay";
++};
++
++&slot0 {
++	mt7615@0,0 {
++		reg = <0x0000 0 0 0 0>;
++		mediatek,mtd-eeprom = <&factory 0x05000>;
++	};
++};
++
++&pcie1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie1_pins>;
++	status = "disabled";
++};
++
++&pio {
++	asm_sel {
++		gpio-hog;
++		gpios = <90 GPIO_ACTIVE_HIGH>;
++		output-high;
++	};
++
++	/* eMMC is shared pin with parallel NAND */
++	emmc_pins_default: emmc-pins-default {
++		mux {
++			function = "emmc", "emmc_rst";
++			groups = "emmc";
++		};
++
++		/* "NDL0","NDL1","NDL2","NDL3","NDL4","NDL5","NDL6","NDL7",
++		 * "NRB","NCLE" pins are used as DAT0,DAT1,DAT2,DAT3,DAT4,
++		 * DAT5,DAT6,DAT7,CMD,CLK for eMMC respectively
++		 */
++		conf-cmd-dat {
++			pins = "NDL0", "NDL1", "NDL2",
++			       "NDL3", "NDL4", "NDL5",
++			       "NDL6", "NDL7", "NRB";
++			input-enable;
++			bias-pull-up;
++		};
++
++		conf-clk {
++			pins = "NCLE";
++			bias-pull-down;
++		};
++	};
++
++	emmc_pins_uhs: emmc-pins-uhs {
++		mux {
++			function = "emmc";
++			groups = "emmc";
++		};
++
++		conf-cmd-dat {
++			pins = "NDL0", "NDL1", "NDL2",
++			       "NDL3", "NDL4", "NDL5",
++			       "NDL6", "NDL7", "NRB";
++			input-enable;
++			drive-strength = <4>;
++			bias-pull-up;
++		};
++
++		conf-clk {
++			pins = "NCLE";
++			drive-strength = <4>;
++			bias-pull-down;
++		};
++	};
++
++	eth_pins: eth-pins {
++		mux {
++			function = "eth";
++			groups = "mdc_mdio", "rgmii_via_gmac2";
++		};
++	};
++
++	i2c1_pins: i2c1-pins {
++		mux {
++			function = "i2c";
++			groups =  "i2c1_0";
++		};
++	};
++
++	i2c2_pins: i2c2-pins {
++		mux {
++			function = "i2c";
++			groups =  "i2c2_0";
++		};
++	};
++
++	i2s1_pins: i2s1-pins {
++		mux {
++			function = "i2s";
++			groups =  "i2s_out_mclk_bclk_ws",
++				  "i2s1_in_data",
++				  "i2s1_out_data";
++		};
++
++		conf {
++			pins = "I2S1_IN", "I2S1_OUT", "I2S_BCLK",
++			       "I2S_WS", "I2S_MCLK";
++			drive-strength = <12>;
++			bias-pull-down;
++		};
++	};
++
++	irrx_pins: irrx-pins {
++		mux {
++			function = "ir";
++			groups =  "ir_1_rx";
++		};
++	};
++
++	irtx_pins: irtx-pins {
++		mux {
++			function = "ir";
++			groups =  "ir_1_tx";
++		};
++	};
++
++	/* Parallel nand is shared pin with eMMC */
++	parallel_nand_pins: parallel-nand-pins {
++		mux {
++			function = "flash";
++			groups = "par_nand";
++		};
++	};
++
++	pcie0_pins: pcie0-pins {
++		mux {
++			function = "pcie";
++			groups = "pcie0_pad_perst",
++				 "pcie0_1_waken",
++				 "pcie0_1_clkreq";
++		};
++	};
++
++	pcie1_pins: pcie1-pins {
++		mux {
++			function = "pcie";
++			groups = "pcie1_pad_perst",
++				 "pcie1_0_waken",
++				 "pcie1_0_clkreq";
++		};
++	};
++
++	pmic_bus_pins: pmic-bus-pins {
++		mux {
++			function = "pmic";
++			groups = "pmic_bus";
++		};
++	};
++
++	pwm7_pins: pwm1-2-pins {
++		mux {
++			function = "pwm";
++			groups = "pwm_ch7_2";
++		};
++	};
++
++	wled_pins: wled-pins {
++		mux {
++			function = "led";
++			groups = "wled";
++		};
++	};
++
++	sd0_pins_default: sd0-pins-default {
++		mux {
++			function = "sd";
++			groups = "sd_0";
++		};
++
++		/* "I2S2_OUT, "I2S4_IN"", "I2S3_IN", "I2S2_IN",
++		 *  "I2S4_OUT", "I2S3_OUT" are used as DAT0, DAT1,
++		 *  DAT2, DAT3, CMD, CLK for SD respectively.
++		 */
++		conf-cmd-data {
++			pins = "I2S2_OUT", "I2S4_IN", "I2S3_IN",
++			       "I2S2_IN","I2S4_OUT";
++			input-enable;
++			drive-strength = <8>;
++			bias-pull-up;
++		};
++		conf-clk {
++			pins = "I2S3_OUT";
++			drive-strength = <12>;
++			bias-pull-down;
++		};
++		conf-cd {
++			pins = "TXD3";
++			bias-pull-up;
++		};
++	};
++
++	sd0_pins_uhs: sd0-pins-uhs {
++		mux {
++			function = "sd";
++			groups = "sd_0";
++		};
++
++		conf-cmd-data {
++			pins = "I2S2_OUT", "I2S4_IN", "I2S3_IN",
++			       "I2S2_IN","I2S4_OUT";
++			input-enable;
++			bias-pull-up;
++		};
++
++		conf-clk {
++			pins = "I2S3_OUT";
++			bias-pull-down;
++		};
++	};
++
++	/* Serial NAND is shared pin with SPI-NOR */
++	serial_nand_pins: serial-nand-pins {
++		mux {
++			function = "flash";
++			groups = "snfi";
++		};
++	};
++
++	spic0_pins: spic0-pins {
++		mux {
++			function = "spi";
++			groups = "spic0_0";
++		};
++	};
++
++	spic1_pins: spic1-pins {
++		mux {
++			function = "spi";
++			groups = "spic1_0";
++		};
++	};
++
++	/* SPI-NOR is shared pin with serial NAND */
++	spi_nor_pins: spi-nor-pins {
++		mux {
++			function = "flash";
++			groups = "spi_nor";
++		};
++	};
++
++	/* serial NAND is shared pin with SPI-NOR */
++	serial_nand_pins: serial-nand-pins {
++		mux {
++			function = "flash";
++			groups = "snfi";
++		};
++	};
++
++	uart0_pins: uart0-pins {
++		mux {
++			function = "uart";
++			groups = "uart0_0_tx_rx" ;
++		};
++	};
++
++	uart2_pins: uart2-pins {
++		mux {
++			function = "uart";
++			groups = "uart2_1_tx_rx" ;
++		};
++	};
++
++	watchdog_pins: watchdog-pins {
++		mux {
++			function = "watchdog";
++			groups = "watchdog";
++		};
++	};
++
++	wmac0_pins: epa-pins {
++		mux {
++			function = "antsel";
++			groups = "antsel0", "antsel1", "antsel2", "antsel3",
++				 "antsel4", "antsel5", "antsel6",
++				 "antsel8", "antsel9", "antsel12", "antsel13",
++				 "antsel15", "antsel16", "antsel17";
++		};
++	};
++};
++
++&pwm {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pwm7_pins>;
++	status = "okay";
++};
++
++&pwrap {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pmic_bus_pins>;
++
++	status = "okay";
++};
++
++&snfi {
++	pinctrl-names = "default";
++	pinctrl-0 = <&serial_nand_pins>;
++	status = "disabled";
++
++	spi_nand@0 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		compatible = "spi-nand";
++		spi-max-frequency = <104000000>;
++		reg = <0>;
++
++		mediatek,bmt-v2;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			partition@0 {
++				label = "preloader";
++				reg = <0x00000 0x0080000>;
++				read-only;
++			};
++
++			partition@80000 {
++				label = "ATF";
++				reg = <0x80000 0x0040000>;
++				read-only;
++			};
++
++			partition@c0000 {
++				label = "uboot";
++				reg = <0xc0000 0x0080000>;
++				read-only;
++			};
++
++			partition@140000 {
++				label = "uboot-env";
++				reg = <0x140000 0x0080000>;
++			};
++
++			factory: partition@1c0000 {
++				label = "factory";
++				reg = <0x1c0000 0x0040000>;
++				read-only;
++			};
++
++			partition@200000 {
++				label = "firmware";
++				reg = <0x200000 0x4000000>;
++			};
++
++			partition@4200000 {
++				label = "nand";
++				reg = <0x4200000 0x3200000>;
++			};
++
++			partition@7400000 {
++				label = "mfginfo";
++				reg = <0x7400000 0x100000>;
++			};
++		};
++	};
++};
++
++&spi0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spic0_pins>;
++	status = "okay";
++};
++
++&spi1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spic1_pins>;
++	status = "okay";
++};
++
++&ssusb {
++	vusb33-supply = <&reg_3p3v>;
++	vbus-supply = <&reg_5v>;
++	status = "okay";
++};
++
++&u3phy {
++	status = "okay";
++};
++
++&uart0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart0_pins>;
++	status = "okay";
++};
++
++&uart2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart2_pins>;
++	status = "disabled";
++};
++
++&watchdog {
++	pinctrl-names = "default";
++	pinctrl-0 = <&watchdog_pins>;
++	status = "okay";
++};
++
++&wmac {
++	pinctrl-names = "default";
++	pinctrl-0 = <&wmac0_pins>;
++
++	mediatek,mtd-eeprom = <&factory 0x0000>;
++	status = "okay";
++};
+diff --git a/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-smartrg-srbpi.dts b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-smartrg-srbpi.dts
+new file mode 100644
+index 0000000000..1a6e4b76c2
+--- /dev/null
++++ b/target/linux/mediatek/files-5.4/arch/arm64/boot/dts/mediatek/mt7622-smartrg-srbpi.dts
+@@ -0,0 +1,697 @@
++/*
++ * Copyright (c) 2018 MediaTek Inc.
++ * Author: Ryder Lee <ryder.lee@mediatek.com>
++ *
++ * SPDX-License-Identifier: (GPL-2.0 OR MIT)
++ */
++
++/dts-v1/;
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++
++#include "mt7622.dtsi"
++#include "mt6380.dtsi"
++
++/ {
++	model = "Bananapi BPI-R64";
++	compatible = "bananapi,bpi-r64", "mediatek,mt7622";
++
++	aliases {
++		serial0 = &uart0;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyS0,115200n1 swiotlb=512";
++	};
++
++	cpus {
++		cpu@0 {
++			proc-supply = <&mt6380_vcpu_reg>;
++			sram-supply = <&mt6380_vm_reg>;
++		};
++
++		cpu@1 {
++			proc-supply = <&mt6380_vcpu_reg>;
++			sram-supply = <&mt6380_vm_reg>;
++		};
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		factory {
++			label = "factory";
++			linux,code = <BTN_0>;
++			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
++		};
++
++		wps {
++			label = "wps";
++			linux,code = <KEY_WPS_BUTTON>;
++			gpios = <&pio 102 GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	gsw: gsw@0 {
++		compatible = "mediatek,mt753x";
++		mediatek,ethsys = <&ethsys>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		green {
++			label = "bpi-r64:pio:green";
++			gpios = <&pio 89 GPIO_ACTIVE_LOW>;
++			default-state = "off";
++		};
++
++		red {
++			label = "bpi-r64:pio:red";
++			gpios = <&pio 88 GPIO_ACTIVE_HIGH>;
++			default-state = "off";
++		};
++	};
++
++	memory {
++		reg = <0x0 0x40000000 0x0 0x40000000>;
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		bootdata_reserved: bootdata@0x45000000 {
++			no-map;
++			reg = <0x0 0x45000000 0x0 0x00001000>;
++		};
++		ramoops_reserved: ramoops1@0x45001000 {
++			no-map;
++			compatible = "ramoops";
++			reg = <0x0 0x45001000 0x0 0x00140000>;
++			ftrace-size  = <0x20000>;
++			record-size  = <0x20000>;
++			console-size = <0x20000>;
++			pmsg-size    = <0x80000>;
++	
++	      };
++	};
++
++	bootdata {
++			compatible = "bootdata";
++			memory-region = <&bootdata_reserved>;
++		};
++
++
++	reg_1p8v: regulator-1p8v {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-1.8V";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++	};
++
++	reg_3p3v: regulator-3p3v {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-3.3V";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	reg_5v: regulator-5v {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-5V";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++};
++
++&bch {
++	status = "disabled";
++};
++
++&btif {
++	status = "okay";
++};
++
++&cir {
++	pinctrl-names = "default";
++	pinctrl-0 = <&irrx_pins>;
++	status = "okay";
++};
++
++&eth {
++	status = "okay";
++	gmac0: mac@0 {
++		compatible = "mediatek,eth-mac";
++		reg = <0>;
++		phy-mode = "2500base-x";
++
++		fixed-link {
++			speed = <2500>;
++			full-duplex;
++			pause;
++		};
++	};
++
++	gmac1: mac@1 {
++		compatible = "mediatek,eth-mac";
++		reg = <1>;
++		phy-mode = "rgmii";
++
++		fixed-link {
++			speed = <1000>;
++			full-duplex;
++			pause;
++		};
++	};
++
++	mdio: mdio-bus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		switch@0 {
++			compatible = "mediatek,mt7531";
++			reg = <0>;
++			reset-gpios = <&pio 54 0>;
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					label = "wan";
++				};
++
++				port@1 {
++					reg = <1>;
++					label = "lan0";
++				};
++
++				port@2 {
++					reg = <2>;
++					label = "lan1";
++				};
++
++				port@3 {
++					reg = <3>;
++					label = "lan2";
++				};
++
++				port@4 {
++					reg = <4>;
++					label = "lan3";
++				};
++
++				port@6 {
++					reg = <6>;
++					label = "cpu";
++					ethernet = <&gmac0>;
++					phy-mode = "2500base-x";
++
++					fixed-link {
++						speed = <2500>;
++						full-duplex;
++						pause;
++					};
++				};
++			};
++		};
++
++	};
++};
++
++&gsw {
++        mediatek,mdio = <&mdio>;
++        mediatek,portmap = "wllll";
++        mediatek,mdio_master_pinmux = <0>;
++        reset-gpios = <&pio 54 0>;
++        interrupt-parent = <&pio>;
++        interrupts = <53 IRQ_TYPE_LEVEL_HIGH>;
++        status = "okay";
++
++        port5: port@5 {
++                compatible = "mediatek,mt753x-port";
++                reg = <5>;
++                phy-mode = "rgmii";
++                fixed-link {
++                        speed = <1000>;
++                        full-duplex;
++                };
++        };
++
++        port6: port@6 {
++                compatible = "mediatek,mt753x-port";
++                reg = <6>;
++                phy-mode = "sgmii";
++                fixed-link {
++                        speed = <2500>;
++                        full-duplex;
++                };
++        };
++};
++
++&i2c1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c1_pins>;
++	status = "okay";
++};
++
++&i2c2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c2_pins>;
++	status = "okay";
++};
++
++&mmc0 {
++	pinctrl-names = "default", "state_uhs";
++	pinctrl-0 = <&emmc_pins_default>;
++	pinctrl-1 = <&emmc_pins_uhs>;
++	status = "okay";
++	bus-width = <8>;
++	max-frequency = <50000000>;
++	cap-mmc-highspeed;
++	mmc-hs200-1_8v;
++	vmmc-supply = <&reg_3p3v>;
++	vqmmc-supply = <&reg_1p8v>;
++	assigned-clocks = <&topckgen CLK_TOP_MSDC30_0_SEL>;
++	assigned-clock-parents = <&topckgen CLK_TOP_UNIV48M>;
++	non-removable;
++
++	emmc@0 {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		compatible = "mmc-card";
++		reg = <0>;
++
++		partitions {
++				compatible = "fixed-partitions";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				factory: partition@1c0000 {
++						label = "factory";
++						reg = <0x01c0000 0x00100000>;
++				};
++
++		};
++	};
++};
++
++&mmc1 {
++	pinctrl-names = "default", "state_uhs";
++	pinctrl-0 = <&sd0_pins_default>;
++	pinctrl-1 = <&sd0_pins_uhs>;
++	status = "okay";
++	bus-width = <4>;
++	max-frequency = <50000000>;
++	cap-sd-highspeed;
++	r_smpl = <1>;
++	cd-gpios = <&pio 81 GPIO_ACTIVE_LOW>;
++	vmmc-supply = <&reg_3p3v>;
++	vqmmc-supply = <&reg_3p3v>;
++	assigned-clocks = <&topckgen CLK_TOP_MSDC30_1_SEL>;
++	assigned-clock-parents = <&topckgen CLK_TOP_UNIV48M>;
++};
++
++&nandc {
++	pinctrl-names = "default";
++	pinctrl-0 = <&parallel_nand_pins>;
++	status = "disabled";
++};
++
++&nor_flash {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spi_nor_pins>;
++	status = "disabled";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++	};
++};
++
++&pcie0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie0_pins>;
++	status = "okay";
++};
++
++&slot0 {
++	wifi0: wifi@0,0 {
++		compatible = "mediatek,mt76";
++		reg = <0x0000 0 0 0 0>;
++		ieee80211-freq-limit = <5000000 6000000>;
++	};
++};
++
++&pcie1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pcie1_pins>;
++	status = "okay";
++};
++
++&slot1 {
++	wifi1: wifi@0,0 {
++		compatible = "mediatek,mt76";
++		reg = <0x0000 0 0 0 0>;
++		ieee80211-freq-limit = <5000000 6000000>;
++	};
++};
++
++&pio {
++	/* Attention: GPIO 90 is used to switch between PCIe@1,0 and
++	 * SATA functions. i.e. output-high: PCIe, output-low: SATA
++	 */
++	asm_sel {
++		gpio-hog;
++		gpios = <90 GPIO_ACTIVE_HIGH>;
++		output-high;
++	};
++
++	/* eMMC is shared pin with parallel NAND */
++	emmc_pins_default: emmc-pins-default {
++		mux {
++			function = "emmc", "emmc_rst";
++			groups = "emmc";
++		};
++
++		/* "NDL0","NDL1","NDL2","NDL3","NDL4","NDL5","NDL6","NDL7",
++		 * "NRB","NCLE" pins are used as DAT0,DAT1,DAT2,DAT3,DAT4,
++		 * DAT5,DAT6,DAT7,CMD,CLK for eMMC respectively
++		 */
++		conf-cmd-dat {
++			pins = "NDL0", "NDL1", "NDL2",
++			       "NDL3", "NDL4", "NDL5",
++			       "NDL6", "NDL7", "NRB";
++			input-enable;
++			bias-pull-up;
++		};
++
++		conf-clk {
++			pins = "NCLE";
++			bias-pull-down;
++		};
++	};
++
++	emmc_pins_uhs: emmc-pins-uhs {
++		mux {
++			function = "emmc";
++			groups = "emmc";
++		};
++
++		conf-cmd-dat {
++			pins = "NDL0", "NDL1", "NDL2",
++			       "NDL3", "NDL4", "NDL5",
++			       "NDL6", "NDL7", "NRB";
++			input-enable;
++			drive-strength = <4>;
++			bias-pull-up;
++		};
++
++		conf-clk {
++			pins = "NCLE";
++			drive-strength = <4>;
++			bias-pull-down;
++		};
++	};
++
++	eth_pins: eth-pins {
++		mux {
++			function = "eth";
++			groups = "mdc_mdio", "rgmii_via_gmac2";
++		};
++	};
++
++	i2c1_pins: i2c1-pins {
++		mux {
++			function = "i2c";
++			groups =  "i2c1_0";
++		};
++	};
++
++	i2c2_pins: i2c2-pins {
++		mux {
++			function = "i2c";
++			groups =  "i2c2_0";
++		};
++	};
++
++	i2s1_pins: i2s1-pins {
++		mux {
++			function = "i2s";
++			groups =  "i2s_out_mclk_bclk_ws",
++				  "i2s1_in_data",
++				  "i2s1_out_data";
++		};
++
++		conf {
++			pins = "I2S1_IN", "I2S1_OUT", "I2S_BCLK",
++			       "I2S_WS", "I2S_MCLK";
++			drive-strength = <12>;
++			bias-pull-down;
++		};
++	};
++
++	irrx_pins: irrx-pins {
++		mux {
++			function = "ir";
++			groups =  "ir_1_rx";
++		};
++	};
++
++	irtx_pins: irtx-pins {
++		mux {
++			function = "ir";
++			groups =  "ir_1_tx";
++		};
++	};
++
++	/* Parallel nand is shared pin with eMMC */
++	parallel_nand_pins: parallel-nand-pins {
++		mux {
++			function = "flash";
++			groups = "par_nand";
++		};
++	};
++
++	pcie0_pins: pcie0-pins {
++		mux {
++			function = "pcie";
++			groups = "pcie0_pad_perst",
++				 "pcie0_1_waken",
++				 "pcie0_1_clkreq";
++		};
++	};
++
++	pcie1_pins: pcie1-pins {
++		mux {
++			function = "pcie";
++			groups = "pcie1_pad_perst",
++				 "pcie1_0_waken",
++				 "pcie1_0_clkreq";
++		};
++	};
++
++	pmic_bus_pins: pmic-bus-pins {
++		mux {
++			function = "pmic";
++			groups = "pmic_bus";
++		};
++	};
++
++	pwm7_pins: pwm1-2-pins {
++		mux {
++			function = "pwm";
++			groups = "pwm_ch7_2";
++		};
++	};
++
++	wled_pins: wled-pins {
++		mux {
++			function = "led";
++			groups = "wled";
++		};
++	};
++
++	sd0_pins_default: sd0-pins-default {
++		mux {
++			function = "sd";
++			groups = "sd_0";
++		};
++
++		/* "I2S2_OUT, "I2S4_IN"", "I2S3_IN", "I2S2_IN",
++		 *  "I2S4_OUT", "I2S3_OUT" are used as DAT0, DAT1,
++		 *  DAT2, DAT3, CMD, CLK for SD respectively.
++		 */
++		conf-cmd-data {
++			pins = "I2S2_OUT", "I2S4_IN", "I2S3_IN",
++			       "I2S2_IN","I2S4_OUT";
++			input-enable;
++			drive-strength = <8>;
++			bias-pull-up;
++		};
++		conf-clk {
++			pins = "I2S3_OUT";
++			drive-strength = <12>;
++			bias-pull-down;
++		};
++		conf-cd {
++			pins = "TXD3";
++			bias-pull-up;
++		};
++	};
++
++	sd0_pins_uhs: sd0-pins-uhs {
++		mux {
++			function = "sd";
++			groups = "sd_0";
++		};
++
++		conf-cmd-data {
++			pins = "I2S2_OUT", "I2S4_IN", "I2S3_IN",
++			       "I2S2_IN","I2S4_OUT";
++			input-enable;
++			bias-pull-up;
++		};
++
++		conf-clk {
++			pins = "I2S3_OUT";
++			bias-pull-down;
++		};
++	};
++
++	/* Serial NAND is shared pin with SPI-NOR */
++	serial_nand_pins: serial-nand-pins {
++		mux {
++			function = "flash";
++			groups = "snfi";
++		};
++	};
++
++	spic0_pins: spic0-pins {
++		mux {
++			function = "spi";
++			groups = "spic0_0";
++		};
++	};
++
++	spic1_pins: spic1-pins {
++		mux {
++			function = "spi";
++			groups = "spic1_0";
++		};
++	};
++
++	/* SPI-NOR is shared pin with serial NAND */
++	spi_nor_pins: spi-nor-pins {
++		mux {
++			function = "flash";
++			groups = "spi_nor";
++		};
++	};
++
++	/* serial NAND is shared pin with SPI-NOR */
++	serial_nand_pins: serial-nand-pins {
++		mux {
++			function = "flash";
++			groups = "snfi";
++		};
++	};
++
++	uart0_pins: uart0-pins {
++		mux {
++			function = "uart";
++			groups = "uart0_0_tx_rx" ;
++		};
++	};
++
++	uart2_pins: uart2-pins {
++		mux {
++			function = "uart";
++			groups = "uart2_1_tx_rx" ;
++		};
++	};
++
++	watchdog_pins: watchdog-pins {
++		mux {
++			function = "watchdog";
++			groups = "watchdog";
++		};
++	};
++};
++
++&pwm {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pwm7_pins>;
++	status = "okay";
++};
++
++&pwrap {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pmic_bus_pins>;
++
++	status = "okay";
++};
++
++&sata {
++	status = "disable";
++};
++
++&sata_phy {
++	status = "disable";
++};
++
++&spi0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spic0_pins>;
++	status = "okay";
++};
++
++&spi1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spic1_pins>;
++	status = "okay";
++};
++
++&ssusb {
++	vusb33-supply = <&reg_3p3v>;
++	vbus-supply = <&reg_5v>;
++	status = "okay";
++};
++
++&u3phy {
++	status = "okay";
++};
++
++&uart0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart0_pins>;
++	status = "okay";
++};
++
++&uart2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart2_pins>;
++	status = "okay";
++};
++
++&watchdog {
++	pinctrl-names = "default";
++	pinctrl-0 = <&watchdog_pins>;
++	status = "okay";
++};
++
++&wmac {
++	mediatek,mtd-eeprom = <&factory 0x0000>;
++	status = "okay";
++};
+diff --git a/target/linux/mediatek/image/gen_mt7622_emmc_img.sh b/target/linux/mediatek/image/gen_mt7622_emmc_img.sh
+index d74068c7b1..be77f22113 100755
+--- a/target/linux/mediatek/image/gen_mt7622_emmc_img.sh
++++ b/target/linux/mediatek/image/gen_mt7622_emmc_img.sh
+@@ -7,13 +7,19 @@ ROOTFS_FILE=$4
+ 
+ BS=512
+ 
++# RECOVERY NOT USED FOR SOS based eMMC layout
++#
+ #RECOVERY_OFFSET= kernel size / BS = 20M / 512 (blocks)
+-RECOVERY_OFFSET=40960
++#RECOVERY_OFFSET=40960
+ 
+ #ROOTFS_OFFSET = RECOVERY_OFFSET + (RECOVERY_SIZE / BS)
+ #	       = 40960 + (10M  / 512) (blocks)
+-ROOTFS_OFFSET=61440
++
++# SOS Kernel (boot) partition is 39424 sectors (39424*512)=19.3 MiB (20185088 B)
++# SOS rootfs (res1) partition 
++
++ROOTFS_OFFSET=39424
+ dd bs="$BS" of="$OUTPUT_FILE" if="$KERNEL_FILE"
+-dd bs="$BS" of="$OUTPUT_FILE" if="$RECOVERY_FILE" seek="$RECOVERY_OFFSET"
++#dd bs="$BS" of="$OUTPUT_FILE" if="$RECOVERY_FILE" seek="$RECOVERY_OFFSET"
+ dd bs="$BS" of="$OUTPUT_FILE" if="$ROOTFS_FILE" seek="$ROOTFS_OFFSET"
+ dd if=/dev/zero of="$OUTPUT_FILE" bs=128k count=1 oflag=append conv=notrunc
+diff --git a/target/linux/mediatek/image/mt7622.mk b/target/linux/mediatek/image/mt7622.mk
+index bf706930e4..71337dc6a4 100644
+--- a/target/linux/mediatek/image/mt7622.mk
++++ b/target/linux/mediatek/image/mt7622.mk
+@@ -32,6 +32,18 @@ define Device/elecom_wrc-2533gent
+ endef
+ TARGET_DEVICES += elecom_wrc-2533gent
+ 
++define Device/smartrg_sr402ac
++  DEVICE_VENDOR := SmartRG
++  DEVICE_MODEL := SR402ac
++  DEVICE_DTS := mt7622-smartrg-sr402ac
++  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
++  DEVICE_PACKAGES := kmod-usb-ohci kmod-usb2 kmod-usb3 kmod-mt7615e \
++    kmod-mt7615-firmware mt7622bt-firmware
++  IMAGES := sysupgrade-emmc.bin.gz
++  IMAGE/sysupgrade-emmc.bin.gz := sysupgrade-emmc | gzip | append-metadata
++endef
++TARGET_DEVICES += smartrg_sr402ac
++
+ define Device/mediatek_mt7622-rfb1
+   DEVICE_VENDOR := MediaTek
+   DEVICE_MODEL := MTK7622 rfb1 AP
+diff --git a/target/linux/mediatek/image/smartrg.mk b/target/linux/mediatek/image/smartrg.mk
+new file mode 100644
+index 0000000000..f630ee2c4f
+--- /dev/null
++++ b/target/linux/mediatek/image/smartrg.mk
+@@ -0,0 +1,99 @@
++.NOTPARALLEL:
++
++SRGRUN:= TARGET_DIR=$(TARGET_DIR) KDIR=$(KDIR) STAGING_DIR=$(STAGING_DIR_HOST) BIN_DIR=$(BIN_DIR) PACKAGE_DIR=$(PACKAGE_DIR) $(TARGET_DIR)/../flash-images/files/srg-image.sh
++BINNAME:=$(IMG_PREFIX)-srg_mediatek-root.squashfs
++VERNAME:=$(VERSION_NUMBER)-$(subst DEVICE_,,$(PROFILE))
++
++define Device/srg_mediatek
++  KERNEL_SUFFIX := -fit-multi.itb
++  KERNEL_INSTALL := 1
++  KERNEL_NAME := Image
++  KERNEL = kernel-bin
++  FILESYSTEMS := squashfs
++  KERNEL_INITRAMFS :=
++  DEVICE_VENDOR := SmartRG
++  DEVICE_MODEL := SmartRG Target
++  DEVICE_PACKAGES := kmod-usb-ohci kmod-usb2 kmod-usb3 kmod-ata-ahci-mtk
++  DEVICE_DTS := mt7622-smartrg-srbpi mt7622-smartrg-sr402ac
++  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
++  IMAGES := root.squashfs img
++  IMAGE/root.squashfs := SrgDisk
++  IMAGE/img := srgImage
++endef
++TARGET_DEVICES := srg_mediatek
++#TARGET_DEVICES += elecom_wrc-2533gent
++#TARGET_DEVICES += smartrg_sr402ac
++#TARGET_DEVICES += mediatek_mt7622-rfb1
++
++define Build/SrgFit
++
++	mkits-multiple-config.sh -o $@.its -A $(LINUX_KARCH) \
++		-v $(LINUX_VERSION) -k $@ -a $(KERNEL_LOADADDR) \
++		-e $(if $(KERNEL_ENTRY),$(KERNEL_ENTRY),$(KERNEL_LOADADDR)) \
++		-D "k1" -C lzma -c 1 \
++		-h "crc32" -h "sha1" \
++		-r $(BIN_DIR)/$(IMG_PREFIX)-initramfs.cpio.gz \
++		-D "rdisk" -c 1 \
++		-h "crc32" -h "sha1" \
++		-d $(KDIR)/image-mt7622-smartrg-srbpi.dtb \
++		-D "srbpi" -n 300 -c 1 \
++		-h "crc32" -h "sha1" \
++		-d $(KDIR)/image-mt7622-smartrg-sr402ac.dtb \
++		-D "834-5-iPA" -n 402 -c 2 \
++		-h "crc32" -h "sha1" \
++		-d $(KDIR)/image-mt7622-smartrg-sr402ac.dtb \
++		-D "834-5-ePA" -n 403 -c 3 \
++		-h "crc32" -h "sha1"
++	PATH=$(LINUX_DIR)/scripts/dtc:$(PATH) mkimage -f $@.its $@.new
++	@mv -f $@.new $@
++endef
++
++define Build/SrgDiskSquashfs
++	@echo "Creating SRG squashfs Image"
++	mkdir -p $(TARGET_DIR)/mnt/FLASH
++	mkdir -p $(TARGET_DIR)/mnt/boot
++	mkdir -p $(TARGET_DIR)/FLASH
++	mkdir -p $(TARGET_DIR)/boot
++	mkdir -p $(TARGET_DIR)/Boot
++	$(CP) $(BIN_DIR)/$(IMG_PREFIX)-srg_mediatek-fit-multi.itb $(TARGET_DIR)/Boot/fit-multi.itb
++	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(TARGET_DIR) $(KDIR)/root.squashfs \
++		-nopad -noappend -root-owned \
++		-comp $(SQUASHFSCOMP) $(SQUASHFSOPT) \
++		-processors 1
++	$(CP) $(KDIR)/root.squashfs $(KDIR)/root.squashfs.bin 
++	dd if=/dev/zero bs=128k count=1 >> $(KDIR)/root.squashfs.bin
++	sha256sum  $(KDIR)/root.squashfs.bin  | cut -d ' ' -f 1 | xargs echo -n  >> $(KDIR)/root.squashfs.bin
++	$(CP) $(KDIR)/root.squashfs.bin $(KDIR)/$(BINNAME).bin
++	$(CP) $(KDIR)/$(BINNAME).bin $(BIN_DIR)/
++endef
++
++define Build/SrgDisk
++    $(call Build/SrgDiskSquashfs)
++endef
++
++define Build/srgImage
++	bash -c "$(SRGRUN) SRGImages $(BINNAME).bin $(VERNAME)" 
++endef
++
++define Image/Flash/mkflash_emmc
++	@echo "BUILD FLASH image CDT : $(1)"
++	CDT_IPK=`find $(wildcard $(PACKAGE_SUBDIRS)) -type f -name 'cdt-$(1)_*.ipk' -print -quit` ; \
++	OUT_DIR="$(BIN_DIR)/flashprogram_bins"; \
++    mkdir -p $$OUT_DIR; \
++	mk_emmc_mfg_image.sh -e $(2) -r $(TARGET_DIR) -R $(BIN_DIR)/$(BINNAME).bin -b $(BIN_DIR) -c $$CDT_IPK -d $$OUT_DIR/$(IMG_PREFIX)-srg_mediatek-emmc-mfg-$(2)-$(1).bin ; \
++	cp $(STAGING_DIR_ROOT)/Boot/bin/preloader-emmc.$(2) $$OUT_DIR/$(IMG_PREFIX)-srg_mediatek-preloader-emmc-mfg-$(2)-$(1).bin
++endef
++
++
++flashme:
++	@echo "Creating FLASH image"
++	$(call Image/Flash/mkflash_emmc,$(CDT),$(ENUM))
++
++cdt-image:
++	@echo "Build CDT image $(CDT)"
++	bash -c "CDT=$(CDT) $(SRGRUN) CDT $(BINNAME) $(VERNAME)"
++
++mini-cdt-image:
++	@echo "Build Mini CDT image $(CDT)"
++	bash -c "CDT=$(CDT) $(SRGRUN) miniCDT $(BINNAME) $(VERNAME)"
++
+diff --git a/target/linux/mediatek/mt7622/base-files/lib/upgrade/platform.sh b/target/linux/mediatek/mt7622/base-files/lib/upgrade/platform.sh
+index 8144476943..6a13a75e25 100755
+--- a/target/linux/mediatek/mt7622/base-files/lib/upgrade/platform.sh
++++ b/target/linux/mediatek/mt7622/base-files/lib/upgrade/platform.sh
+@@ -3,9 +3,14 @@ platform_do_upgrade() {
+ 
+ 	case "$board" in
+ 	bananapi,bpi-r64-rootdisk)
+-		#2097152=0x200000 is the offset in bytes from the start
+-		#of eMMC and to the location of the kernel
+-		get_image "$1" | dd of=/dev/mmcblk0 bs=2097152 seek=1 conv=fsync
++                #2883584=0x2C0000 is the offset in bytes from the start
++                #of eMMC and to the location of the kernel. Start sector = 5632
++                get_image "$1" | dd of=/dev/mmcblk0 bs=2883584 seek=1 conv=fsync
++		;;
++	smartrg,sr402ac)
++                #2883584=0x2C0000 is the offset in bytes from the start
++                #of eMMC and to the location of the kernel. Start sector = 5632
++                get_image "$1" | dd of=/dev/mmcblk0 bs=2883584 seek=1 conv=fsync
+ 		;;
+ 	mediatek,mt7622,ubi)
+ 		nand_do_upgrade "$1"
+@@ -38,11 +43,12 @@ platform_check_image() {
+ }
+ 
+ platform_copy_config_emmc() {
+-	mkdir -p /recovery
+-	mount -o rw,noatime /dev/mmcblk0p6 /recovery
+-	cp -af "$UPGRADE_BACKUP" "/recovery/$BACKUP_FILE"
+-	sync
+-	umount /recovery
++	echo "NO recovery"
++	#mkdir -p /recovery
++	#mount -o rw,noatime /dev/mmcblk0p6 /recovery
++	#cp -af "$UPGRADE_BACKUP" "/recovery/$BACKUP_FILE"
++	#sync
++	#umount /recovery
+ }
+ 
+ platform_copy_config() {
+diff --git a/target/linux/mediatek/mt7622/config-5.4 b/target/linux/mediatek/mt7622/config-5.4
+index b873bdc40c..6508e5189c 100644
+--- a/target/linux/mediatek/mt7622/config-5.4
++++ b/target/linux/mediatek/mt7622/config-5.4
+@@ -2,58 +2,6 @@ CONFIG_64BIT=y
+ CONFIG_AHCI_MTK=y
+ CONFIG_ARCH_CLOCKSOURCE_DATA=y
+ CONFIG_ARCH_DMA_ADDR_T_64BIT=y
+-CONFIG_ARCH_ENABLE_MEMORY_HOTPLUG=y
+-CONFIG_ARCH_ENABLE_SPLIT_PMD_PTLOCK=y
+-CONFIG_ARCH_HAS_CACHE_LINE_SIZE=y
+-CONFIG_ARCH_HAS_DEBUG_VIRTUAL=y
+-CONFIG_ARCH_HAS_DMA_COHERENT_TO_PFN=y
+-CONFIG_ARCH_HAS_DMA_PREP_COHERENT=y
+-CONFIG_ARCH_HAS_ELF_RANDOMIZE=y
+-CONFIG_ARCH_HAS_FAST_MULTIPLIER=y
+-CONFIG_ARCH_HAS_FORTIFY_SOURCE=y
+-CONFIG_ARCH_HAS_GCOV_PROFILE_ALL=y
+-CONFIG_ARCH_HAS_GIGANTIC_PAGE=y
+-CONFIG_ARCH_HAS_KCOV=y
+-CONFIG_ARCH_HAS_KEEPINITRD=y
+-CONFIG_ARCH_HAS_MEMBARRIER_SYNC_CORE=y
+-CONFIG_ARCH_HAS_PTE_DEVMAP=y
+-CONFIG_ARCH_HAS_PTE_SPECIAL=y
+-CONFIG_ARCH_HAS_SETUP_DMA_OPS=y
+-CONFIG_ARCH_HAS_SET_DIRECT_MAP=y
+-CONFIG_ARCH_HAS_SET_MEMORY=y
+-CONFIG_ARCH_HAS_STRICT_KERNEL_RWX=y
+-CONFIG_ARCH_HAS_STRICT_MODULE_RWX=y
+-CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU=y
+-CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE=y
+-CONFIG_ARCH_HAS_SYSCALL_WRAPPER=y
+-CONFIG_ARCH_HAS_TICK_BROADCAST=y
+-CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG=y
+-CONFIG_ARCH_INLINE_READ_LOCK=y
+-CONFIG_ARCH_INLINE_READ_LOCK_BH=y
+-CONFIG_ARCH_INLINE_READ_LOCK_IRQ=y
+-CONFIG_ARCH_INLINE_READ_LOCK_IRQSAVE=y
+-CONFIG_ARCH_INLINE_READ_UNLOCK=y
+-CONFIG_ARCH_INLINE_READ_UNLOCK_BH=y
+-CONFIG_ARCH_INLINE_READ_UNLOCK_IRQ=y
+-CONFIG_ARCH_INLINE_READ_UNLOCK_IRQRESTORE=y
+-CONFIG_ARCH_INLINE_SPIN_LOCK=y
+-CONFIG_ARCH_INLINE_SPIN_LOCK_BH=y
+-CONFIG_ARCH_INLINE_SPIN_LOCK_IRQ=y
+-CONFIG_ARCH_INLINE_SPIN_LOCK_IRQSAVE=y
+-CONFIG_ARCH_INLINE_SPIN_TRYLOCK=y
+-CONFIG_ARCH_INLINE_SPIN_TRYLOCK_BH=y
+-CONFIG_ARCH_INLINE_SPIN_UNLOCK=y
+-CONFIG_ARCH_INLINE_SPIN_UNLOCK_BH=y
+-CONFIG_ARCH_INLINE_SPIN_UNLOCK_IRQ=y
+-CONFIG_ARCH_INLINE_SPIN_UNLOCK_IRQRESTORE=y
+-CONFIG_ARCH_INLINE_WRITE_LOCK=y
+-CONFIG_ARCH_INLINE_WRITE_LOCK_BH=y
+-CONFIG_ARCH_INLINE_WRITE_LOCK_IRQ=y
+-CONFIG_ARCH_INLINE_WRITE_LOCK_IRQSAVE=y
+-CONFIG_ARCH_INLINE_WRITE_UNLOCK=y
+-CONFIG_ARCH_INLINE_WRITE_UNLOCK_BH=y
+-CONFIG_ARCH_INLINE_WRITE_UNLOCK_IRQ=y
+-CONFIG_ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE=y
+ CONFIG_ARCH_KEEP_MEMBLOCK=y
+ CONFIG_ARCH_MEDIATEK=y
+ CONFIG_ARCH_MMAP_RND_BITS=18
+@@ -65,21 +13,7 @@ CONFIG_ARCH_PROC_KCORE_TEXT=y
+ CONFIG_ARCH_SELECT_MEMORY_MODEL=y
+ CONFIG_ARCH_SPARSEMEM_DEFAULT=y
+ CONFIG_ARCH_SPARSEMEM_ENABLE=y
+-CONFIG_ARCH_SUPPORTS_ATOMIC_RMW=y
+-CONFIG_ARCH_SUPPORTS_DEBUG_PAGEALLOC=y
+-CONFIG_ARCH_SUPPORTS_INT128=y
+-CONFIG_ARCH_SUPPORTS_MEMORY_FAILURE=y
+-CONFIG_ARCH_SUPPORTS_NUMA_BALANCING=y
+-CONFIG_ARCH_SUPPORTS_UPROBES=y
+ CONFIG_ARCH_SUSPEND_POSSIBLE=y
+-CONFIG_ARCH_USE_CMPXCHG_LOCKREF=y
+-CONFIG_ARCH_USE_MEMREMAP_PROT=y
+-CONFIG_ARCH_USE_QUEUED_RWLOCKS=y
+-CONFIG_ARCH_USE_QUEUED_SPINLOCKS=y
+-CONFIG_ARCH_WANT_COMPAT_IPC_PARSE_VERSION=y
+-CONFIG_ARCH_WANT_DEFAULT_TOPDOWN_MMAP_LAYOUT=y
+-CONFIG_ARCH_WANT_FRAME_POINTERS=y
+-CONFIG_ARCH_WANT_HUGE_PMD_SHARE=y
+ CONFIG_ARM64=y
+ CONFIG_ARM64_4K_PAGES=y
+ # CONFIG_ARM64_CNP is not set
+@@ -110,7 +44,6 @@ CONFIG_ARM_GIC_V3=y
+ CONFIG_ARM_GIC_V3_ITS=y
+ CONFIG_ARM_GIC_V3_ITS_PCI=y
+ CONFIG_ARM_MEDIATEK_CPUFREQ=y
+-CONFIG_ARM_PMU=y
+ CONFIG_ARM_PSCI_FW=y
+ CONFIG_ATA=y
+ CONFIG_AUDIT_ARCH_COMPAT_GENERIC=y
+@@ -122,7 +55,6 @@ CONFIG_BLOCK_COMPAT=y
+ CONFIG_BSD_PROCESS_ACCT=y
+ CONFIG_BSD_PROCESS_ACCT_V3=y
+ # CONFIG_CAVIUM_TX2_ERRATUM_219 is not set
+-CONFIG_CC_HAS_KASAN_GENERIC=y
+ CONFIG_CLKDEV_LOOKUP=y
+ CONFIG_CLKSRC_MMIO=y
+ CONFIG_CLOCK_THERMAL=y
+@@ -224,14 +156,10 @@ CONFIG_DRM_RCAR_WRITEBACK=y
+ CONFIG_DTC=y
+ CONFIG_DYNAMIC_DEBUG=y
+ CONFIG_EDAC_SUPPORT=y
+-CONFIG_EFI_EARLYCON=y
+ CONFIG_EINT_MTK=y
+ CONFIG_FIXED_PHY=y
+ CONFIG_FIX_EARLYCON_MEM=y
+ # CONFIG_FLATMEM_MANUAL is not set
+-CONFIG_FONT_8x16=y
+-CONFIG_FONT_AUTOSELECT=y
+-CONFIG_FONT_SUPPORT=y
+ CONFIG_FRAME_POINTER=y
+ # CONFIG_FUJITSU_ERRATUM_010001 is not set
+ CONFIG_FW_LOADER_PAGED_BUF=y
+@@ -273,63 +201,6 @@ CONFIG_HARDIRQS_SW_RESEND=y
+ CONFIG_HAS_DMA=y
+ CONFIG_HAS_IOMEM=y
+ CONFIG_HAS_IOPORT_MAP=y
+-CONFIG_HAVE_ALIGNED_STRUCT_PAGE=y
+-CONFIG_HAVE_ARCH_AUDITSYSCALL=y
+-CONFIG_HAVE_ARCH_BITREVERSE=y
+-CONFIG_HAVE_ARCH_HUGE_VMAP=y
+-CONFIG_HAVE_ARCH_JUMP_LABEL=y
+-CONFIG_HAVE_ARCH_JUMP_LABEL_RELATIVE=y
+-CONFIG_HAVE_ARCH_KASAN=y
+-CONFIG_HAVE_ARCH_KASAN_SW_TAGS=y
+-CONFIG_HAVE_ARCH_KGDB=y
+-CONFIG_HAVE_ARCH_MMAP_RND_COMPAT_BITS=y
+-CONFIG_HAVE_ARCH_PFN_VALID=y
+-CONFIG_HAVE_ARCH_PREL32_RELOCATIONS=y
+-CONFIG_HAVE_ARCH_SECCOMP_FILTER=y
+-CONFIG_HAVE_ARCH_STACKLEAK=y
+-CONFIG_HAVE_ARCH_THREAD_STRUCT_WHITELIST=y
+-CONFIG_HAVE_ARCH_TRACEHOOK=y
+-CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE=y
+-CONFIG_HAVE_ARCH_VMAP_STACK=y
+-CONFIG_HAVE_ARM_SMCCC=y
+-CONFIG_HAVE_ASM_MODVERSIONS=y
+-CONFIG_HAVE_CLK=y
+-CONFIG_HAVE_CLK_PREPARE=y
+-CONFIG_HAVE_CMPXCHG_DOUBLE=y
+-CONFIG_HAVE_CMPXCHG_LOCAL=y
+-CONFIG_HAVE_CONTEXT_TRACKING=y
+-CONFIG_HAVE_COPY_THREAD_TLS=y
+-CONFIG_HAVE_C_RECORDMCOUNT=y
+-CONFIG_HAVE_DEBUG_BUGVERBOSE=y
+-CONFIG_HAVE_DEBUG_KMEMLEAK=y
+-CONFIG_HAVE_DMA_CONTIGUOUS=y
+-CONFIG_HAVE_DYNAMIC_FTRACE=y
+-CONFIG_HAVE_EBPF_JIT=y
+-CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=y
+-CONFIG_HAVE_FAST_GUP=y
+-CONFIG_HAVE_FTRACE_MCOUNT_RECORD=y
+-CONFIG_HAVE_FUNCTION_ARG_ACCESS_API=y
+-CONFIG_HAVE_FUNCTION_ERROR_INJECTION=y
+-CONFIG_HAVE_FUNCTION_GRAPH_TRACER=y
+-CONFIG_HAVE_FUNCTION_TRACER=y
+-CONFIG_HAVE_GENERIC_VDSO=y
+-CONFIG_HAVE_HW_BREAKPOINT=y
+-CONFIG_HAVE_IRQ_TIME_ACCOUNTING=y
+-CONFIG_HAVE_MEMORY_PRESENT=y
+-CONFIG_HAVE_MOD_ARCH_SPECIFIC=y
+-CONFIG_HAVE_NET_DSA=y
+-CONFIG_HAVE_PATA_PLATFORM=y
+-CONFIG_HAVE_PCI=y
+-CONFIG_HAVE_PERF_EVENTS=y
+-CONFIG_HAVE_PERF_REGS=y
+-CONFIG_HAVE_PERF_USER_STACK_DUMP=y
+-CONFIG_HAVE_RCU_TABLE_FREE=y
+-CONFIG_HAVE_REGS_AND_STACK_ACCESS_API=y
+-CONFIG_HAVE_RSEQ=y
+-CONFIG_HAVE_SCHED_AVG_IRQ=y
+-CONFIG_HAVE_SYSCALL_TRACEPOINTS=y
+-CONFIG_HAVE_UID16=y
+-CONFIG_HAVE_VIRT_CPU_ACCOUNTING_GEN=y
+ CONFIG_HOLES_IN_ZONE=y
+ CONFIG_HZ=250
+ CONFIG_HZ_250=y
+@@ -343,26 +214,6 @@ CONFIG_IKCONFIG=y
+ CONFIG_IKCONFIG_PROC=y
+ CONFIG_ILLEGAL_POINTER_VALUE=0xdead000000000000
+ CONFIG_INITRAMFS_SOURCE=""
+-CONFIG_INLINE_READ_LOCK=y
+-CONFIG_INLINE_READ_LOCK_BH=y
+-CONFIG_INLINE_READ_LOCK_IRQ=y
+-CONFIG_INLINE_READ_LOCK_IRQSAVE=y
+-CONFIG_INLINE_READ_UNLOCK_BH=y
+-CONFIG_INLINE_READ_UNLOCK_IRQRESTORE=y
+-CONFIG_INLINE_SPIN_LOCK=y
+-CONFIG_INLINE_SPIN_LOCK_BH=y
+-CONFIG_INLINE_SPIN_LOCK_IRQ=y
+-CONFIG_INLINE_SPIN_LOCK_IRQSAVE=y
+-CONFIG_INLINE_SPIN_TRYLOCK=y
+-CONFIG_INLINE_SPIN_TRYLOCK_BH=y
+-CONFIG_INLINE_SPIN_UNLOCK_BH=y
+-CONFIG_INLINE_SPIN_UNLOCK_IRQRESTORE=y
+-CONFIG_INLINE_WRITE_LOCK=y
+-CONFIG_INLINE_WRITE_LOCK_BH=y
+-CONFIG_INLINE_WRITE_LOCK_IRQ=y
+-CONFIG_INLINE_WRITE_LOCK_IRQSAVE=y
+-CONFIG_INLINE_WRITE_UNLOCK_BH=y
+-CONFIG_INLINE_WRITE_UNLOCK_IRQRESTORE=y
+ CONFIG_IO_URING=y
+ CONFIG_IRQCHIP=y
+ CONFIG_IRQ_DOMAIN=y
+@@ -388,13 +239,15 @@ CONFIG_MESSAGE_LOGLEVEL_DEFAULT=7
+ CONFIG_MFD_SYSCON=y
+ CONFIG_MIGRATION=y
+ CONFIG_MMC=y
++CONFIG_MMC_BLOCK=y
++CONFIG_MMC_BLOCK_MINORS=16
+ CONFIG_MMC_MTK=y
+-CONFIG_MODULES_TREE_LOOKUP=y
+ CONFIG_MODULES_USE_ELF_RELA=y
+ CONFIG_MT753X_GSW=y
+ CONFIG_MTD_NAND_CORE=y
+ CONFIG_MTD_NAND_ECC_SW_HAMMING=y
+ CONFIG_MTD_NAND_MTK=y
++CONFIG_MTD_NAND_MTK_BMT=y
+ CONFIG_MTD_RAW_NAND=y
+ CONFIG_MTD_SPI_NAND=y
+ CONFIG_MTD_SPI_NOR=y
+@@ -422,7 +275,6 @@ CONFIG_NET_DSA=y
+ CONFIG_NET_DSA_MT7530=y
+ CONFIG_NET_DSA_TAG_MTK=y
+ CONFIG_NET_FLOW_LIMIT=y
+-CONFIG_NET_MEDIATEK_OFFLOAD=y
+ CONFIG_NET_MEDIATEK_SOC=y
+ CONFIG_NET_SWITCHDEV=y
+ CONFIG_NET_VENDOR_MEDIATEK=y
+@@ -477,7 +329,6 @@ CONFIG_PINCTRL_MT7622=y
+ CONFIG_PINCTRL_MT8516=y
+ CONFIG_PINCTRL_MTK=y
+ CONFIG_PINCTRL_MTK_MOORE=y
+-CONFIG_PLUGIN_HOSTCC="g++"
+ CONFIG_PM=y
+ CONFIG_PM_CLK=y
+ CONFIG_PM_GENERIC_DOMAINS=y
+diff --git a/target/linux/mediatek/mt7622/target.mk b/target/linux/mediatek/mt7622/target.mk
+index cb5a6b48cd..dd4459724e 100644
+--- a/target/linux/mediatek/mt7622/target.mk
++++ b/target/linux/mediatek/mt7622/target.mk
+@@ -2,7 +2,7 @@ ARCH:=aarch64
+ SUBTARGET:=mt7622
+ BOARDNAME:=MT7622
+ CPU_TYPE:=cortex-a53
+-DEFAULT_PACKAGES += kmod-mt7615e kmod-mt7615-firmware wpad-basic-wolfssl
++DEFAULT_PACKAGES += kmod-mt7615e kmod-mt7615-firmware wpad-basic
+ KERNELNAME:=Image dtbs
+ 
+ define Target/Description
+diff --git a/target/linux/mediatek/patches-5.4/0310-mtk-bmt-support.patch b/target/linux/mediatek/patches-5.4/0310-mtk-bmt-support.patch
+new file mode 100644
+index 0000000000..2a23f8c3dc
+--- /dev/null
++++ b/target/linux/mediatek/patches-5.4/0310-mtk-bmt-support.patch
+@@ -0,0 +1,837 @@
++--- a/drivers/mtd/nand/Kconfig
+++++ b/drivers/mtd/nand/Kconfig
++@@ -5,3 +5,7 @@ config MTD_NAND_CORE
++ source "drivers/mtd/nand/onenand/Kconfig"
++ source "drivers/mtd/nand/raw/Kconfig"
++ source "drivers/mtd/nand/spi/Kconfig"
+++
+++config MTD_NAND_MTK_BMT
+++	bool "Support MediaTek NAND Bad-block Management Table"
+++	default n
++--- a/drivers/mtd/nand/Makefile
+++++ b/drivers/mtd/nand/Makefile
++@@ -2,6 +2,7 @@
++ 
++ nandcore-objs := core.o bbt.o
++ obj-$(CONFIG_MTD_NAND_CORE) += nandcore.o
+++obj-$(CONFIG_MTD_NAND_MTK_BMT)	+= mtk_bmt.o
++ 
++ obj-y	+= onenand/
++ obj-y	+= raw/
++--- /dev/null
+++++ b/drivers/mtd/nand/mtk_bmt.c
++@@ -0,0 +1,766 @@
+++/*
+++ * Copyright (c) 2017 MediaTek Inc.
+++ * Author: Xiangsheng Hou <xiangsheng.hou@mediatek.com>
+++ * Copyright (c) 2020 Felix Fietkau <nbd@nbd.name>
+++ *
+++ * This program is free software; you can redistribute it and/or modify
+++ * it under the terms of the GNU General Public License version 2 as
+++ * published by the Free Software Foundation.
+++ *
+++ * This program is distributed in the hope that it will be useful,
+++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+++ * GNU General Public License for more details.
+++ */
+++
+++#include <linux/slab.h>
+++#include <linux/gfp.h>
+++#include <linux/kernel.h>
+++#include <linux/of.h>
+++#include <linux/mtd/nand.h>
+++#include <linux/mtd/partitions.h>
+++#include <linux/mtd/mtk_bmt.h>
+++#include <linux/module.h>
+++#include <linux/debugfs.h>
+++
+++#define MAIN_SIGNATURE_OFFSET   0
+++#define OOB_SIGNATURE_OFFSET    1
+++#define BBPOOL_RATIO		2
+++
+++#define BBT_LOG(fmt, ...) pr_debug("[BBT][%s|%d] "fmt"\n", __func__, __LINE__, ##__VA_ARGS__)
+++
+++/* Maximum 8k blocks */
+++#define BB_TABLE_MAX	0x2000U
+++#define BMT_TABLE_MAX	(BB_TABLE_MAX * BBPOOL_RATIO / 100)
+++#define BMT_TBL_DEF_VAL	0x0
+++
+++/*
+++ * Burner Bad Block Table
+++ * --------- Only support SLC Nand Chips!!!!!!!!!!! ----------
+++ */
+++
+++struct bbbt {
+++	char signature[3];
+++	/* This version is used to distinguish the legacy and new algorithm */
+++#define BBMT_VERSION		2
+++	unsigned char version;
+++	/* Below 2 tables will be written in SLC */
+++	u16 bb_tbl[BB_TABLE_MAX];
+++	struct bbmt {
+++		u16 block;
+++#define NO_MAPPED		0
+++#define NORMAL_MAPPED	1
+++#define BMT_MAPPED		2
+++		u16 mapped;
+++	} bmt_tbl[BMT_TABLE_MAX];
+++};
+++
+++static struct bmt_desc {
+++	struct mtd_info *mtd;
+++
+++	int (*_read_oob) (struct mtd_info *mtd, loff_t from,
+++			  struct mtd_oob_ops *ops);
+++	int (*_write_oob) (struct mtd_info *mtd, loff_t to,
+++			   struct mtd_oob_ops *ops);
+++	const struct nand_ops *nand_ops;
+++
+++	struct bbbt *bbt;
+++
+++	struct dentry *debugfs_dir;
+++
+++	u32 pg_size;
+++	u32 blk_size;
+++	u16 pg_shift;
+++	u16 blk_shift;
+++	/* bbt logical address */
+++	u16 pool_lba;
+++	/* bbt physical address */
+++	u16 pool_pba;
+++	/* Maximum count of bad blocks that the vendor guaranteed */
+++	u16 bb_max;
+++	/* Total blocks of the Nand Chip */
+++	u16 total_blks;
+++	/* The block(n) BMT is located at (bmt_tbl[n]) */
+++	u16 bmt_blk_idx;
+++	/* How many pages needs to store 'struct bbbt' */
+++	u32 bmt_pgs;
+++
+++	/* to compensate for driver level remapping */
+++	u8 oob_offset;
+++} bmtd = {0};
+++
+++static unsigned char *nand_bbt_buf;
+++static unsigned char *nand_data_buf;
+++
+++/* -------- Unit conversions -------- */
+++static inline u32 blk_pg(u16 block)
+++{
+++	return (u32)(block << (bmtd.blk_shift - bmtd.pg_shift));
+++}
+++
+++/* -------- Nand operations wrapper -------- */
+++static inline int
+++bbt_nand_read(u32 page, unsigned char *dat, int dat_len,
+++	      unsigned char *fdm, int fdm_len)
+++{
+++	struct mtd_oob_ops ops = {
+++		.mode = MTD_OPS_PLACE_OOB,
+++		.ooboffs = bmtd.oob_offset,
+++		.oobbuf = fdm,
+++		.ooblen = fdm_len,
+++		.datbuf = dat,
+++		.len = dat_len,
+++	};
+++
+++	return bmtd._read_oob(bmtd.mtd, page << bmtd.pg_shift, &ops);
+++}
+++
+++static inline int bbt_nand_erase(u16 block)
+++{
+++	struct nand_device *nand = mtd_to_nanddev(bmtd.mtd);
+++	loff_t addr = (loff_t)block << bmtd.blk_shift;
+++	struct nand_pos pos;
+++
+++	nanddev_offs_to_pos(nand, addr, &pos);
+++	return bmtd.nand_ops->erase(nand, &pos);
+++}
+++
+++/* -------- Bad Blocks Management -------- */
+++static int
+++read_bmt(u16 block, unsigned char *dat, unsigned char *fdm, int fdm_len)
+++{
+++	u32 len = bmtd.bmt_pgs << bmtd.pg_shift;
+++
+++	return bbt_nand_read(blk_pg(block), dat, len, fdm, fdm_len);
+++}
+++
+++static int write_bmt(u16 block, unsigned char *dat)
+++{
+++	struct mtd_oob_ops ops = {
+++		.mode = MTD_OPS_PLACE_OOB,
+++		.ooboffs = OOB_SIGNATURE_OFFSET + bmtd.oob_offset,
+++		.oobbuf = "bmt",
+++		.ooblen = 3,
+++		.datbuf = dat,
+++		.len = bmtd.bmt_pgs << bmtd.pg_shift,
+++	};
+++	loff_t addr = (loff_t)block << bmtd.blk_shift;
+++
+++	return bmtd._write_oob(bmtd.mtd, addr, &ops);
+++}
+++
+++static u16 find_valid_block(u16 block)
+++{
+++	u8 fdm[4];
+++	int ret;
+++	int loop = 0;
+++
+++retry:
+++	if (block >= bmtd.total_blks)
+++		return 0;
+++
+++	ret = bbt_nand_read(blk_pg(block), nand_data_buf, bmtd.pg_size,
+++			    fdm, sizeof(fdm));
+++	/* Read the 1st byte of FDM to judge whether it's a bad
+++	 * or not
+++	 */
+++	if (ret || fdm[0] != 0xff) {
+++		pr_info("nand: found bad block 0x%x\n", block);
+++		if (loop >= bmtd.bb_max) {
+++			pr_info("nand: FATAL ERR: too many bad blocks!!\n");
+++			return 0;
+++		}
+++
+++		loop++;
+++		block++;
+++		goto retry;
+++	}
+++
+++	return block;
+++}
+++
+++/* Find out all bad blocks, and fill in the mapping table */
+++static int scan_bad_blocks(struct bbbt *bbt)
+++{
+++	int i;
+++	u16 block = 0;
+++
+++	/* First time download, the block0 MUST NOT be a bad block,
+++	 * this is guaranteed by vendor
+++	 */
+++	bbt->bb_tbl[0] = 0;
+++
+++	/*
+++	 * Construct the mapping table of Normal data area(non-PMT/BMTPOOL)
+++	 * G - Good block; B - Bad block
+++	 *			---------------------------
+++	 * physical |G|G|B|G|B|B|G|G|G|G|B|G|B|
+++	 *			---------------------------
+++	 * What bb_tbl[i] looks like:
+++	 *   physical block(i):
+++	 *			 0 1 2 3 4 5 6 7 8 9 a b c
+++	 *   mapped block(bb_tbl[i]):
+++	 *			 0 1 3 6 7 8 9 b ......
+++	 * ATTENTION:
+++	 *		If new bad block ocurred(n), search bmt_tbl to find
+++	 *		a available block(x), and fill in the bb_tbl[n] = x;
+++	 */
+++	for (i = 1; i < bmtd.pool_lba; i++) {
+++		bbt->bb_tbl[i] = find_valid_block(bbt->bb_tbl[i - 1] + 1);
+++		BBT_LOG("bb_tbl[0x%x] = 0x%x", i, bbt->bb_tbl[i]);
+++		if (bbt->bb_tbl[i] == 0)
+++			return -1;
+++	}
+++
+++	/* Physical Block start Address of BMT pool */
+++	bmtd.pool_pba = bbt->bb_tbl[i - 1] + 1;
+++	if (bmtd.pool_pba >= bmtd.total_blks - 2) {
+++		pr_info("nand: FATAL ERR: Too many bad blocks!!\n");
+++		return -1;
+++	}
+++
+++	BBT_LOG("pool_pba=0x%x", bmtd.pool_pba);
+++	i = 0;
+++	block = bmtd.pool_pba;
+++	/*
+++	 * The bmt table is used for runtime bad block mapping
+++	 * G - Good block; B - Bad block
+++	 *			---------------------------
+++	 * physical |G|G|B|G|B|B|G|G|G|G|B|G|B|
+++	 *			---------------------------
+++	 *   block:	 0 1 2 3 4 5 6 7 8 9 a b c
+++	 * What bmt_tbl[i] looks like in initial state:
+++	 *   i:
+++	 *			 0 1 2 3 4 5 6 7
+++	 *   bmt_tbl[i].block:
+++	 *			 0 1 3 6 7 8 9 b
+++	 *   bmt_tbl[i].mapped:
+++	 *			 N N N N N N N B
+++	 *		N - Not mapped(Available)
+++	 *		M - Mapped
+++	 *		B - BMT
+++	 * ATTENTION:
+++	 *		BMT always in the last valid block in pool
+++	 */
+++	while ((block = find_valid_block(block)) != 0) {
+++		bbt->bmt_tbl[i].block = block;
+++		bbt->bmt_tbl[i].mapped = NO_MAPPED;
+++		BBT_LOG("bmt_tbl[%d].block = 0x%x", i, block);
+++		block++;
+++		i++;
+++	}
+++
+++	/* i - How many available blocks in pool, which is the length of bmt_tbl[]
+++	 * bmtd.bmt_blk_idx - bmt_tbl[bmtd.bmt_blk_idx].block => the BMT block
+++	 */
+++	bmtd.bmt_blk_idx = i - 1;
+++	bbt->bmt_tbl[bmtd.bmt_blk_idx].mapped = BMT_MAPPED;
+++
+++	if (i < 1) {
+++		pr_info("nand: FATAL ERR: no space to store BMT!!\n");
+++		return -1;
+++	}
+++
+++	pr_info("[BBT] %d available blocks in BMT pool\n", i);
+++
+++	return 0;
+++}
+++
+++static bool is_valid_bmt(unsigned char *buf, unsigned char *fdm)
+++{
+++	struct bbbt *bbt = (struct bbbt *)buf;
+++	u8 *sig = (u8*)bbt->signature + MAIN_SIGNATURE_OFFSET;
+++
+++
+++	if (memcmp(bbt->signature + MAIN_SIGNATURE_OFFSET, "BMT", 3) == 0 &&
+++		memcmp(fdm + OOB_SIGNATURE_OFFSET, "bmt", 3) == 0) {
+++		if (bbt->version == BBMT_VERSION)
+++			return true;
+++	}
+++	BBT_LOG("[BBT] BMT Version not match,upgrage preloader and uboot please! sig=%02x%02x%02x, fdm=%02x%02x%02x",
+++		sig[0], sig[1], sig[2],
+++		fdm[1], fdm[2], fdm[3]);
+++	return false;
+++}
+++
+++static u16 get_bmt_index(struct bbmt *bmt)
+++{
+++	int i = 0;
+++
+++	while (bmt[i].block != BMT_TBL_DEF_VAL) {
+++		if (bmt[i].mapped == BMT_MAPPED)
+++			return i;
+++		i++;
+++	}
+++	return 0;
+++}
+++
+++static struct bbbt *scan_bmt(u16 block)
+++{
+++	u8 fdm[4];
+++
+++	if (block < bmtd.pool_lba)
+++		return NULL;
+++
+++	if (read_bmt(block, nand_bbt_buf, fdm, sizeof(fdm)))
+++		return scan_bmt(block - 1);
+++
+++	if (is_valid_bmt(nand_bbt_buf, fdm)) {
+++		bmtd.bmt_blk_idx = get_bmt_index(((struct bbbt *)nand_bbt_buf)->bmt_tbl);
+++		if (bmtd.bmt_blk_idx == 0) {
+++			pr_info("[BBT] FATAL ERR: bmt block index is wrong!\n");
+++			return NULL;
+++		}
+++		pr_info("[BBT] BMT.v2 is found at 0x%x\n", block);
+++		return (struct bbbt *)nand_bbt_buf;
+++	} else
+++		return scan_bmt(block - 1);
+++}
+++
+++/* Write the Burner Bad Block Table to Nand Flash
+++ * n - write BMT to bmt_tbl[n]
+++ */
+++static u16 upload_bmt(struct bbbt *bbt, int n)
+++{
+++	u16 block;
+++
+++retry:
+++	if (n < 0 || bbt->bmt_tbl[n].mapped == NORMAL_MAPPED) {
+++		pr_info("nand: FATAL ERR: no space to store BMT!\n");
+++		return (u16)-1;
+++	}
+++
+++	block = bbt->bmt_tbl[n].block;
+++	BBT_LOG("n = 0x%x, block = 0x%x", n, block);
+++	if (bbt_nand_erase(block)) {
+++		bbt->bmt_tbl[n].block = 0;
+++		/* erase failed, try the previous block: bmt_tbl[n - 1].block */
+++		n--;
+++		goto retry;
+++	}
+++
+++	/* The signature offset is fixed set to 0,
+++	 * oob signature offset is fixed set to 1
+++	 */
+++	memcpy(bbt->signature + MAIN_SIGNATURE_OFFSET, "BMT", 3);
+++	bbt->version = BBMT_VERSION;
+++
+++	if (write_bmt(block, (unsigned char *)bbt)) {
+++		bbt->bmt_tbl[n].block = 0;
+++
+++		/* write failed, try the previous block in bmt_tbl[n - 1] */
+++		n--;
+++		goto retry;
+++	}
+++
+++	/* Return the current index(n) of BMT pool (bmt_tbl[n]) */
+++	return n;
+++}
+++
+++static u16 find_valid_block_in_pool(struct bbbt *bbt)
+++{
+++	int i;
+++
+++	if (bmtd.bmt_blk_idx == 0)
+++		goto error;
+++
+++	for (i = 0; i < bmtd.bmt_blk_idx; i++) {
+++		if (bbt->bmt_tbl[i].block != 0 && bbt->bmt_tbl[i].mapped == NO_MAPPED) {
+++			bbt->bmt_tbl[i].mapped = NORMAL_MAPPED;
+++			return bbt->bmt_tbl[i].block;
+++		}
+++	}
+++
+++error:
+++	pr_info("nand: FATAL ERR: BMT pool is run out!\n");
+++	return 0;
+++}
+++
+++/* We met a bad block, mark it as bad and map it to a valid block in pool,
+++ * if it's a write failure, we need to write the data to mapped block
+++ */
+++static bool update_bmt(u16 block)
+++{
+++	u16 mapped_blk;
+++	struct bbbt *bbt;
+++
+++	bbt = bmtd.bbt;
+++	mapped_blk = find_valid_block_in_pool(bbt);
+++	if (mapped_blk == 0)
+++		return false;
+++
+++	/* Map new bad block to available block in pool */
+++	bbt->bb_tbl[block] = mapped_blk;
+++	bmtd.bmt_blk_idx = upload_bmt(bbt, bmtd.bmt_blk_idx);
+++
+++	return true;
+++}
+++
+++u16 get_mapping_block_index(int block)
+++{
+++	int mapping_block;
+++
+++	if (block < bmtd.pool_lba)
+++		mapping_block = bmtd.bbt->bb_tbl[block];
+++	else
+++		mapping_block = block;
+++	BBT_LOG("0x%x mapped to 0x%x", block, mapping_block);
+++
+++	return mapping_block;
+++}
+++
+++static int
+++mtk_bmt_read(struct mtd_info *mtd, loff_t from,
+++	     struct mtd_oob_ops *ops)
+++{
+++	struct mtd_oob_ops cur_ops = *ops;
+++	int retry_count = 0;
+++	loff_t cur_from;
+++	int ret;
+++
+++	ops->retlen = 0;
+++	ops->oobretlen = 0;
+++
+++	while (ops->retlen < ops->len || ops->oobretlen < ops->ooblen) {
+++		u32 offset = from & (bmtd.blk_size - 1);
+++		u32 block = from >> bmtd.blk_shift;
+++		u32 cur_block;
+++
+++		cur_block = get_mapping_block_index(block);
+++		cur_from = ((loff_t)cur_block << bmtd.blk_shift) + offset;
+++
+++		cur_ops.oobretlen = 0;
+++		cur_ops.retlen = 0;
+++		cur_ops.len = min_t(u32, mtd->erasesize - offset,
+++					 ops->len - ops->retlen);
+++		ret = bmtd._read_oob(mtd, cur_from, &cur_ops);
+++		if (ret < 0) {
+++			update_bmt(block);
+++			if (retry_count++ < 10)
+++				continue;
+++
+++			return ret;
+++		}
+++
+++		ops->retlen += cur_ops.retlen;
+++		ops->oobretlen += cur_ops.oobretlen;
+++
+++		cur_ops.datbuf += cur_ops.retlen;
+++		cur_ops.oobbuf += cur_ops.oobretlen;
+++		cur_ops.ooblen -= cur_ops.oobretlen;
+++
+++		if (!cur_ops.len)
+++			cur_ops.len = mtd->erasesize - offset;
+++
+++		from += cur_ops.len;
+++		retry_count = 0;
+++	}
+++
+++	return 0;
+++}
+++
+++static int
+++mtk_bmt_write(struct mtd_info *mtd, loff_t to,
+++	      struct mtd_oob_ops *ops)
+++{
+++	struct mtd_oob_ops cur_ops = *ops;
+++	int retry_count = 0;
+++	loff_t cur_to;
+++	int ret;
+++
+++	ops->retlen = 0;
+++	ops->oobretlen = 0;
+++
+++	while (ops->retlen < ops->len || ops->oobretlen < ops->ooblen) {
+++		u32 offset = to & (bmtd.blk_size - 1);
+++		u32 block = to >> bmtd.blk_shift;
+++		u32 cur_block;
+++
+++		cur_block = get_mapping_block_index(block);
+++		cur_to = ((loff_t)cur_block << bmtd.blk_shift) + offset;
+++
+++		cur_ops.oobretlen = 0;
+++		cur_ops.retlen = 0;
+++		cur_ops.len = min_t(u32, bmtd.blk_size - offset,
+++					 ops->len - ops->retlen);
+++		ret = bmtd._write_oob(mtd, cur_to, &cur_ops);
+++		if (ret < 0) {
+++			update_bmt(block);
+++			if (retry_count++ < 10)
+++				continue;
+++
+++			return ret;
+++		}
+++
+++		ops->retlen += cur_ops.retlen;
+++		ops->oobretlen += cur_ops.oobretlen;
+++
+++		cur_ops.datbuf += cur_ops.retlen;
+++		cur_ops.oobbuf += cur_ops.oobretlen;
+++		cur_ops.ooblen -= cur_ops.oobretlen;
+++
+++		if (!cur_ops.len)
+++			cur_ops.len = mtd->erasesize - offset;
+++
+++		to += cur_ops.len;
+++		retry_count = 0;
+++	}
+++
+++	return 0;
+++}
+++
+++
+++
+++static int
+++mtk_bmt_erase(struct nand_device *nand, const struct nand_pos *pos)
+++{
+++	struct nand_pos new_pos = *pos;
+++	int retry_count = 0;
+++	int ret;
+++
+++retry:
+++	new_pos.eraseblock = get_mapping_block_index(pos->eraseblock);
+++
+++	ret = bmtd.nand_ops->erase(nand, &new_pos);
+++	if (ret) {
+++		update_bmt(pos->eraseblock);
+++		if (retry_count++ < 10)
+++			goto retry;
+++	}
+++
+++	return ret;
+++}
+++
+++static bool
+++mtk_bmt_isbad(struct nand_device *nand, const struct nand_pos *pos)
+++{
+++	struct nand_pos new_pos = *pos;
+++	int retry_count = 0;
+++	bool ret;
+++
+++retry:
+++	new_pos.eraseblock = get_mapping_block_index(pos->eraseblock);
+++
+++	ret = bmtd.nand_ops->isbad(nand, &new_pos);
+++	if (ret) {
+++		update_bmt(pos->eraseblock);
+++		if (retry_count++ < 10)
+++			goto retry;
+++	}
+++
+++	return ret;
+++}
+++
+++static int
+++mtk_bmt_markbad(struct nand_device *nand, const struct nand_pos *pos)
+++{
+++	struct nand_pos new_pos = *pos;
+++
+++	new_pos.eraseblock = get_mapping_block_index(new_pos.eraseblock);
+++	update_bmt(pos->eraseblock);
+++
+++	return bmtd.nand_ops->markbad(nand, &new_pos);
+++}
+++
+++static void
+++mtk_bmt_replace_ops(struct mtd_info *mtd)
+++{
+++	static const struct nand_ops mtk_bmt_nand_ops = {
+++		.erase = mtk_bmt_erase,
+++		.isbad = mtk_bmt_isbad,
+++		.markbad = mtk_bmt_markbad,
+++	};
+++	struct nand_device *nand = mtd_to_nanddev(mtd);
+++
+++	bmtd.nand_ops = nand->ops;
+++	bmtd._read_oob = mtd->_read_oob;
+++	bmtd._write_oob = mtd->_write_oob;
+++
+++	mtd->_read_oob = mtk_bmt_read;
+++	mtd->_write_oob = mtk_bmt_write;
+++	nand->ops = &mtk_bmt_nand_ops;
+++}
+++
+++static int mtk_bmt_debug_mark_good(void *data, u64 val)
+++{
+++	u32 block = val >> bmtd.blk_shift;
+++
+++	bmtd.bbt->bb_tbl[block] = block;
+++	bmtd.bmt_blk_idx = upload_bmt(bmtd.bbt, bmtd.bmt_blk_idx);
+++
+++	return 0;
+++}
+++
+++static int mtk_bmt_debug_mark_bad(void *data, u64 val)
+++{
+++	u32 block = val >> bmtd.blk_shift;
+++
+++	update_bmt(block);
+++
+++	return 0;
+++}
+++
+++DEFINE_DEBUGFS_ATTRIBUTE(fops_mark_good, NULL, mtk_bmt_debug_mark_good, "%llu\n");
+++DEFINE_DEBUGFS_ATTRIBUTE(fops_mark_bad, NULL, mtk_bmt_debug_mark_bad, "%llu\n");
+++
+++static void
+++mtk_bmt_add_debugfs(void)
+++{
+++	struct dentry *dir;
+++
+++	dir = bmtd.debugfs_dir = debugfs_create_dir("mtk-bmt", NULL);
+++	if (!dir)
+++		return;
+++
+++	debugfs_create_file_unsafe("mark_good", S_IWUSR, dir, NULL, &fops_mark_good);
+++	debugfs_create_file_unsafe("mark_bad", S_IWUSR, dir, NULL, &fops_mark_bad);
+++}
+++
+++void mtk_bmt_detach(struct mtd_info *mtd)
+++{
+++	struct nand_device *nand = mtd_to_nanddev(mtd);
+++
+++	if (bmtd.mtd != mtd)
+++		return;
+++
+++	if (bmtd.debugfs_dir)
+++		debugfs_remove_recursive(bmtd.debugfs_dir);
+++	bmtd.debugfs_dir = NULL;
+++
+++	kfree(nand_bbt_buf);
+++	kfree(nand_data_buf);
+++
+++	mtd->_read_oob = bmtd._read_oob;
+++	mtd->_write_oob = bmtd._write_oob;
+++	mtd->size = bmtd.total_blks << bmtd.blk_shift;
+++	nand->ops = bmtd.nand_ops;
+++
+++	memset(&bmtd, 0, sizeof(bmtd));
+++}
+++
+++/* total_blocks - The total count of blocks that the Nand Chip has */
+++int mtk_bmt_attach(struct mtd_info *mtd)
+++{
+++	struct device_node *np;
+++	struct bbbt *bbt;
+++	u32 bufsz;
+++	u32 block;
+++	u16 total_blocks, pmt_block;
+++	int ret = 0;
+++	u32 bmt_pool_size;
+++
+++	if (bmtd.mtd)
+++		return -ENOSPC;
+++
+++	np = mtd_get_of_node(mtd);
+++	if (!np)
+++		return 0;
+++
+++	if (!of_property_read_bool(np, "mediatek,bmt-v2"))
+++		return 0;
+++
+++	if (of_property_read_u32(np, "mediatek,bmt-pool-size",
+++				 &bmt_pool_size) != 0)
+++		bmt_pool_size = 80;
+++
+++	if (of_property_read_u8(np, "mediatek,bmt-oob-offset",
+++				 &bmtd.oob_offset) != 0)
+++		bmtd.oob_offset = 8;
+++
+++	bmtd.mtd = mtd;
+++	mtk_bmt_replace_ops(mtd);
+++
+++	bmtd.blk_size = mtd->erasesize;
+++	bmtd.blk_shift = ffs(bmtd.blk_size) - 1;
+++	bmtd.pg_size = mtd->writesize;
+++	bmtd.pg_shift = ffs(bmtd.pg_size) - 1;
+++	total_blocks = mtd->size >> bmtd.blk_shift;
+++	pmt_block = total_blocks - bmt_pool_size - 2;
+++
+++	mtd->size = pmt_block << bmtd.blk_shift;
+++
+++	/*
+++	 *  ---------------------------------------
+++	 * | PMT(2blks) | BMT POOL(totalblks * 2%) |
+++	 *  ---------------------------------------
+++	 * ^            ^
+++	 * |            |
+++	 * pmt_block	pmt_block + 2blocks(pool_lba)
+++	 *
+++	 * ATTETION!!!!!!
+++	 *     The blocks ahead of the boundary block are stored in bb_tbl
+++	 *     and blocks behind are stored in bmt_tbl
+++	 */
+++
+++	bmtd.pool_lba = (u16)(pmt_block + 2);
+++	bmtd.total_blks = total_blocks;
+++	bmtd.bb_max = bmtd.total_blks * BBPOOL_RATIO / 100;
+++
+++	/* 3 buffers we need */
+++	bufsz = round_up(sizeof(struct bbbt), bmtd.pg_size);
+++	bmtd.bmt_pgs = bufsz >> bmtd.pg_shift;
+++
+++	nand_bbt_buf = kzalloc(bufsz, GFP_KERNEL);
+++	nand_data_buf = kzalloc(bmtd.pg_size, GFP_KERNEL);
+++
+++	if (!nand_bbt_buf || !nand_data_buf) {
+++		pr_info("nand: FATAL ERR: allocate buffer failed!\n");
+++		ret = -1;
+++		goto error;
+++	}
+++
+++	memset(nand_bbt_buf, 0xff, bufsz);
+++	memset(nand_data_buf, 0xff, bmtd.pg_size);
+++
+++	BBT_LOG("bbtbuf=0x%p(0x%x) dat=0x%p(0x%x)",
+++			nand_bbt_buf, bufsz, nand_data_buf, bmtd.pg_size);
+++	BBT_LOG("pool_lba=0x%x total_blks=0x%x bb_max=0x%x",
+++			bmtd.pool_lba, bmtd.total_blks, bmtd.bb_max);
+++
+++	/* Scanning start from the first page of the last block
+++	 * of whole flash
+++	 */
+++	bbt = scan_bmt(bmtd.total_blks - 1);
+++	if (!bbt) {
+++		/* BMT not found */
+++		if (bmtd.total_blks > BB_TABLE_MAX + BMT_TABLE_MAX) {
+++			pr_info("nand: FATAL: Too many blocks, can not support!\n");
+++			ret = -1;
+++			goto error;
+++		}
+++
+++		bbt = (struct bbbt *)nand_bbt_buf;
+++		memset(bbt->bmt_tbl, BMT_TBL_DEF_VAL, sizeof(bbt->bmt_tbl));
+++
+++		if (scan_bad_blocks(bbt)) {
+++			ret = -1;
+++			goto error;
+++		}
+++
+++		/* BMT always in the last valid block in pool */
+++		bmtd.bmt_blk_idx = upload_bmt(bbt, bmtd.bmt_blk_idx);
+++		block = bbt->bmt_tbl[bmtd.bmt_blk_idx].block;
+++		pr_notice("[BBT] BMT.v2 is written into PBA:0x%x\n", block);
+++
+++		if (bmtd.bmt_blk_idx == 0)
+++			pr_info("nand: Warning: no available block in BMT pool!\n");
+++		else if (bmtd.bmt_blk_idx == (u16)-1) {
+++			ret = -1;
+++			goto error;
+++		}
+++	}
+++	mtk_bmt_add_debugfs();
+++
+++	bmtd.bbt = bbt;
+++	return 0;
+++
+++error:
+++	mtk_bmt_detach(mtd);
+++	return ret;
+++}
+++
+++
+++MODULE_LICENSE("GPL");
+++MODULE_AUTHOR("Xiangsheng Hou <xiangsheng.hou@mediatek.com>, Felix Fietkau <nbd@nbd.name>");
+++MODULE_DESCRIPTION("Bad Block mapping management v2 for MediaTek NAND Flash Driver");
+++
++--- a/drivers/mtd/nand/spi/core.c
+++++ b/drivers/mtd/nand/spi/core.c
++@@ -18,6 +18,7 @@
++ #include <linux/slab.h>
++ #include <linux/spi/spi.h>
++ #include <linux/spi/spi-mem.h>
+++#include <linux/mtd/mtk_bmt.h>
++ 
++ static int spinand_read_reg_op(struct spinand_device *spinand, u8 reg, u8 *val)
++ {
++@@ -1099,6 +1100,8 @@ static int spinand_probe(struct spi_mem
++ 	if (ret)
++ 		return ret;
++ 
+++	mtk_bmt_attach(mtd);
+++
++ 	ret = mtd_device_register(mtd, NULL, 0);
++ 	if (ret)
++ 		goto err_spinand_cleanup;
++@@ -1124,6 +1127,7 @@ static int spinand_remove(struct spi_mem
++ 	if (ret)
++ 		return ret;
++ 
+++	mtk_bmt_detach(mtd);
++ 	spinand_cleanup(spinand);
++ 
++ 	return 0;
++--- /dev/null
+++++ b/include/linux/mtd/mtk_bmt.h
++@@ -0,0 +1,18 @@
+++#ifndef __MTK_BMT_H
+++#define __MTK_BMT_H
+++
+++#ifdef CONFIG_MTD_NAND_MTK_BMT
+++int mtk_bmt_attach(struct mtd_info *mtd);
+++void mtk_bmt_detach(struct mtd_info *mtd);
+++#else
+++static inline int mtk_bmt_attach(struct mtd_info *mtd)
+++{
+++	return 0;
+++}
+++
+++static inline void mtk_bmt_detach(struct mtd_info *mtd)
+++{
+++}
+++#endif
+++
+++#endif
+diff --git a/target/linux/mediatek/patches-5.4/1002-smartrg-block2mtd.patch b/target/linux/mediatek/patches-5.4/1002-smartrg-block2mtd.patch
+new file mode 100644
+index 0000000000..777537e0b1
+--- /dev/null
++++ b/target/linux/mediatek/patches-5.4/1002-smartrg-block2mtd.patch
+@@ -0,0 +1,20 @@
++--- a/drivers/mtd/devices/block2mtd.c
+++++ b/drivers/mtd/devices/block2mtd.c
++@@ -207,7 +207,7 @@ static void block2mtd_free_device(struct
++ 	if (dev->blkdev) {
++ 		invalidate_mapping_pages(dev->blkdev->bd_inode->i_mapping,
++ 					0, -1);
++-		blkdev_put(dev->blkdev, FMODE_READ|FMODE_WRITE|FMODE_EXCL);
+++		blkdev_put(dev->blkdev, FMODE_READ|FMODE_WRITE);
++ 	}
++ 
++ 	kfree(dev);
++@@ -220,7 +220,7 @@ static struct block2mtd_dev *add_device(
++ #ifndef MODULE
++ 	int i;
++ #endif
++-	const fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
+++	const fmode_t mode = FMODE_READ | FMODE_WRITE ;
++ 	struct block_device *bdev;
++ 	struct block2mtd_dev *dev;
++ 	struct mtd_partition *part;
+diff --git a/target/linux/mediatek/patches-5.4/1004-smartrg-mt7622-rfb1-smartos-support.patch b/target/linux/mediatek/patches-5.4/1004-smartrg-mt7622-rfb1-smartos-support.patch
+new file mode 100644
+index 0000000000..38a8ab3fcf
+--- /dev/null
++++ b/target/linux/mediatek/patches-5.4/1004-smartrg-mt7622-rfb1-smartos-support.patch
+@@ -0,0 +1,105 @@
++--- a/arch/arm64/boot/dts/mediatek/mt7622-rfb1.dts
+++++ b/arch/arm64/boot/dts/mediatek/mt7622-rfb1.dts
++@@ -71,6 +71,31 @@
++ 		reg = <0 0x40000000 0 0x40000000>;
++ 	};
++ 
+++	reserved-memory {
+++		#address-cells = <2>;
+++		#size-cells = <2>;
+++		ranges;
+++
+++		bootdata_reserved: bootdata@0x45000000 {
+++			no-map;
+++			reg = <0x0 0x45000000 0x0 0x00001000>;
+++		};
+++		ramoops_reserved: ramoops1@0x45001000 {
+++			no-map;
+++			compatible = "ramoops";
+++			reg = <0x0 0x45001000 0x0 0x00140000>;
+++			ftrace-size = <0x20000>;
+++			record-size = <0x20000>;
+++			console-size = <0x20000>;
+++			pmsg-size = <0x80000>;
+++		};
+++	};
+++
+++	bootdata {
+++		compatible = "bootdata";
+++		memory-region = <&bootdata_reserved>;
+++	};
+++
++ 	reg_1p8v: regulator-1p8v {
++ 		compatible = "regulator-fixed";
++ 		regulator-name = "fixed-1.8V";
++@@ -266,6 +291,21 @@
++ 	status = "okay";
++ };
++ 
+++&slot0 {
+++	mt76@0,0 {
+++		reg = <0x0000 0 0 0 0>;
+++		mediatek,mtd-eeprom = <&factory 0x0000>;
+++	};
+++};
+++
+++&slot1 {
+++	mt76@0,0 {
+++		reg = <0x0000 0 0 0 0>;
+++		mediatek,mtd-eeprom = <&factory 0x8000>;
+++		ieee80211-freq-limit = <5000000 6000000>;
+++	};
+++};
+++
++ &pio {
++ 	/* Attention: GPIO 90 is used to switch between PCIe@1,0 and
++ 	 * SATA functions. i.e. output-high: PCIe, output-low: SATA
++@@ -561,6 +601,8 @@
++ 		spi-max-frequency = <104000000>;
++ 		reg = <0>;
++ 
+++		mediatek,bmt-v2;
+++
++ 		partitions {
++ 			compatible = "fixed-partitions";
++ 			#address-cells = <1>;
++@@ -588,19 +630,29 @@
++ 			};
++ 
++ 			factory: partition@1c0000 {
++-				label = "Factory";
+++				label = "factory";
++ 				reg = <0x1c0000 0x0100000>;
++ 			};
++ 
++-			partition@200000 {
+++			partition@2c0000 {
++ 				label = "firmware";
++-				reg = <0x2c0000 0x2000000>;
+++				reg = <0x2c0000 0x4000000>;
++ 			};
++ 
++ 			partition@2200000 {
++ 				label = "User_data";
++ 				reg = <0x22c0000 0x4000000>;
++ 			};
+++
+++			partition@42c0000 {
+++				label = "nand";
+++				reg = <0x42c0000 0x3140000>;
+++			};
+++
+++			partition@7400000 {
+++				label = "mfginfo";
+++				reg = <0x7400000 0x100000>;
+++			};
++ 		};
++ 	};
++ };
++@@ -647,5 +699,5 @@
++ 
++ &wmac {
++ 	mediatek,mtd-eeprom = <&factory 0x0000>;
++-	status = "okay";
+++	status = "disabled";
++ };
+diff --git a/target/linux/mediatek/patches-5.4/1006-smartrg-mt7622-pinctrl-antsel.patch b/target/linux/mediatek/patches-5.4/1006-smartrg-mt7622-pinctrl-antsel.patch
+new file mode 100644
+index 0000000000..d9093f89d5
+--- /dev/null
++++ b/target/linux/mediatek/patches-5.4/1006-smartrg-mt7622-pinctrl-antsel.patch
+@@ -0,0 +1,142 @@
++From: Chad Monroe <chad.monroe@smartrg.com>
++Date: Tue, 06 Apr 2021 10:22:48 -0700
++Subject: mediatek: backport antsel pin definitions
++
++Signed-off-by: Chad Monroe <chad.monroe@smartrg.com>
++--
++ pinctrl-mt7622.c |  103 +++++++++++++++++++++++++++++++++++++++++++++++++++++++
++ 1 file changed, 103 insertions(+)
++
++--- a/drivers/pinctrl/mediatek/pinctrl-mt7622.c
+++++ b/drivers/pinctrl/mediatek/pinctrl-mt7622.c
++@@ -263,6 +263,68 @@ static const struct mtk_pin_desc mt7622_
++  * hardware probably has multiple combinations of these pinouts.
++  */
++ 
+++/* ANTSEL */
+++static int mt7622_antsel0_pins[] = { 91, };
+++static int mt7622_antsel0_funcs[] = { 5, };
+++static int mt7622_antsel1_pins[] = { 92, };
+++static int mt7622_antsel1_funcs[] = { 5, };
+++static int mt7622_antsel2_pins[] = { 93, };
+++static int mt7622_antsel2_funcs[] = { 5, };
+++static int mt7622_antsel3_pins[] = { 94, };
+++static int mt7622_antsel3_funcs[] = { 5, };
+++static int mt7622_antsel4_pins[] = { 95, };
+++static int mt7622_antsel4_funcs[] = { 5, };
+++static int mt7622_antsel5_pins[] = { 96, };
+++static int mt7622_antsel5_funcs[] = { 5, };
+++static int mt7622_antsel6_pins[] = { 97, };
+++static int mt7622_antsel6_funcs[] = { 5, };
+++static int mt7622_antsel7_pins[] = { 98, };
+++static int mt7622_antsel7_funcs[] = { 5, };
+++static int mt7622_antsel8_pins[] = { 99, };
+++static int mt7622_antsel8_funcs[] = { 5, };
+++static int mt7622_antsel9_pins[] = { 100, };
+++static int mt7622_antsel9_funcs[] = { 5, };
+++static int mt7622_antsel10_pins[] = { 101, };
+++static int mt7622_antsel10_funcs[] = { 5, };
+++static int mt7622_antsel11_pins[] = { 102, };
+++static int mt7622_antsel11_funcs[] = { 5, };
+++static int mt7622_antsel12_pins[] = { 73, };
+++static int mt7622_antsel12_funcs[] = { 5, };
+++static int mt7622_antsel13_pins[] = { 74, };
+++static int mt7622_antsel13_funcs[] = { 5, };
+++static int mt7622_antsel14_pins[] = { 75, };
+++static int mt7622_antsel14_funcs[] = { 5, };
+++static int mt7622_antsel15_pins[] = { 76, };
+++static int mt7622_antsel15_funcs[] = { 5, };
+++static int mt7622_antsel16_pins[] = { 77, };
+++static int mt7622_antsel16_funcs[] = { 5, };
+++static int mt7622_antsel17_pins[] = { 22, };
+++static int mt7622_antsel17_funcs[] = { 5, };
+++static int mt7622_antsel18_pins[] = { 79, };
+++static int mt7622_antsel18_funcs[] = { 5, };
+++static int mt7622_antsel19_pins[] = { 80, };
+++static int mt7622_antsel19_funcs[] = { 5, };
+++static int mt7622_antsel20_pins[] = { 81, };
+++static int mt7622_antsel20_funcs[] = { 5, };
+++static int mt7622_antsel21_pins[] = { 82, };
+++static int mt7622_antsel21_funcs[] = { 5, };
+++static int mt7622_antsel22_pins[] = { 14, };
+++static int mt7622_antsel22_funcs[] = { 5, };
+++static int mt7622_antsel23_pins[] = { 15, };
+++static int mt7622_antsel23_funcs[] = { 5, };
+++static int mt7622_antsel24_pins[] = { 16, };
+++static int mt7622_antsel24_funcs[] = { 5, };
+++static int mt7622_antsel25_pins[] = { 17, };
+++static int mt7622_antsel25_funcs[] = { 5, };
+++static int mt7622_antsel26_pins[] = { 18, };
+++static int mt7622_antsel26_funcs[] = { 5, };
+++static int mt7622_antsel27_pins[] = { 19, };
+++static int mt7622_antsel27_funcs[] = { 5, };
+++static int mt7622_antsel28_pins[] = { 20, };
+++static int mt7622_antsel28_funcs[] = { 5, };
+++static int mt7622_antsel29_pins[] = { 21, };
+++static int mt7622_antsel29_funcs[] = { 5, };
+++
++ /* EMMC */
++ static int mt7622_emmc_pins[] = { 40, 41, 42, 43, 44, 45, 47, 48, 49, 50, };
++ static int mt7622_emmc_funcs[] = { 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, };
++@@ -543,6 +605,36 @@ static int mt7622_wled_pins[] = { 85, };
++ static int mt7622_wled_funcs[] = { 0, };
++ 
++ static const struct group_desc mt7622_groups[] = {
+++	PINCTRL_PIN_GROUP("antsel0", mt7622_antsel0),
+++	PINCTRL_PIN_GROUP("antsel1", mt7622_antsel1),
+++	PINCTRL_PIN_GROUP("antsel2", mt7622_antsel2),
+++	PINCTRL_PIN_GROUP("antsel3", mt7622_antsel3),
+++	PINCTRL_PIN_GROUP("antsel4", mt7622_antsel4),
+++	PINCTRL_PIN_GROUP("antsel5", mt7622_antsel5),
+++	PINCTRL_PIN_GROUP("antsel6", mt7622_antsel6),
+++	PINCTRL_PIN_GROUP("antsel7", mt7622_antsel7),
+++	PINCTRL_PIN_GROUP("antsel8", mt7622_antsel8),
+++	PINCTRL_PIN_GROUP("antsel9", mt7622_antsel9),
+++	PINCTRL_PIN_GROUP("antsel10", mt7622_antsel10),
+++	PINCTRL_PIN_GROUP("antsel11", mt7622_antsel11),
+++	PINCTRL_PIN_GROUP("antsel12", mt7622_antsel12),
+++	PINCTRL_PIN_GROUP("antsel13", mt7622_antsel13),
+++	PINCTRL_PIN_GROUP("antsel14", mt7622_antsel14),
+++	PINCTRL_PIN_GROUP("antsel15", mt7622_antsel15),
+++	PINCTRL_PIN_GROUP("antsel16", mt7622_antsel16),
+++	PINCTRL_PIN_GROUP("antsel17", mt7622_antsel17),
+++	PINCTRL_PIN_GROUP("antsel18", mt7622_antsel18),
+++	PINCTRL_PIN_GROUP("antsel19", mt7622_antsel19),
+++	PINCTRL_PIN_GROUP("antsel20", mt7622_antsel20),
+++	PINCTRL_PIN_GROUP("antsel21", mt7622_antsel21),
+++	PINCTRL_PIN_GROUP("antsel22", mt7622_antsel22),
+++	PINCTRL_PIN_GROUP("antsel23", mt7622_antsel23),
+++	PINCTRL_PIN_GROUP("antsel24", mt7622_antsel24),
+++	PINCTRL_PIN_GROUP("antsel25", mt7622_antsel25),
+++	PINCTRL_PIN_GROUP("antsel26", mt7622_antsel26),
+++	PINCTRL_PIN_GROUP("antsel27", mt7622_antsel27),
+++	PINCTRL_PIN_GROUP("antsel28", mt7622_antsel28),
+++	PINCTRL_PIN_GROUP("antsel29", mt7622_antsel29),
++ 	PINCTRL_PIN_GROUP("emmc", mt7622_emmc),
++ 	PINCTRL_PIN_GROUP("emmc_rst", mt7622_emmc_rst),
++ 	PINCTRL_PIN_GROUP("ephy_leds", mt7622_ephy_leds),
++@@ -663,6 +755,16 @@ static const struct group_desc mt7622_gr
++ /* Joint those groups owning the same capability in user point of view which
++  * allows that people tend to use through the device tree.
++  */
+++static const char *mt7622_antsel_groups[] = { "antsel0", "antsel1", "antsel2",
+++					      "antsel3", "antsel4", "antsel5",
+++					      "antsel6", "antsel7", "antsel8",
+++					      "antsel9", "antsel10", "antsel11",
+++					      "antsel12", "antsel13", "antsel14",
+++					      "antsel15", "antsel16", "antsel17",
+++					      "antsel18", "antsel19", "antsel20",
+++					      "antsel21", "antsel22", "antsel23",
+++					      "antsel24", "antsel25", "antsel26",
+++					      "antsel27", "antsel28", "antsel29",};
++ static const char *mt7622_emmc_groups[] = { "emmc", "emmc_rst", };
++ static const char *mt7622_ethernet_groups[] = { "esw", "esw_p0_p1",
++ 						"esw_p2_p3_p4", "mdc_mdio",
++@@ -732,6 +834,7 @@ static const char *mt7622_uart_groups[]
++ static const char *mt7622_wdt_groups[] = { "watchdog", };
++ 
++ static const struct function_desc mt7622_functions[] = {
+++	{"antsel", mt7622_antsel_groups, ARRAY_SIZE(mt7622_antsel_groups)},
++ 	{"emmc", mt7622_emmc_groups, ARRAY_SIZE(mt7622_emmc_groups)},
++ 	{"eth",	mt7622_ethernet_groups, ARRAY_SIZE(mt7622_ethernet_groups)},
++ 	{"i2c", mt7622_i2c_groups, ARRAY_SIZE(mt7622_i2c_groups)},
+diff --git a/target/linux/mediatek/patches-5.4/1999-smartrg-d2-mt7622-rfb-kernel.patch b/target/linux/mediatek/patches-5.4/1999-smartrg-d2-mt7622-rfb-kernel.patch
+new file mode 100644
+index 0000000000..18c97e7d12
+--- /dev/null
++++ b/target/linux/mediatek/patches-5.4/1999-smartrg-d2-mt7622-rfb-kernel.patch
+@@ -0,0 +1,129 @@
++--- a/arch/arm64/boot/dts/mediatek/mt7622-rfb1.dts
+++++ b/arch/arm64/boot/dts/mediatek/mt7622-rfb1.dts
++@@ -36,7 +36,7 @@
++ 			sram-supply = <&mt6380_vm_reg>;
++ 		};
++ 	};
++-
+++    /*
++ 	gpio-keys {
++ 		compatible = "gpio-keys";
++ 
++@@ -52,6 +52,7 @@
++ 			gpios = <&pio 102 GPIO_ACTIVE_LOW>;
++ 		};
++ 	};
+++    */
++ 
++ 	leds {
++ 		compatible = "gpio-leds";
++@@ -121,6 +122,19 @@
++ 		regulator-boot-on;
++ 		regulator-always-on;
++ 	};
+++
+++    sound: sound {
+++        compatible = "mediatek,mt2701-wm8960-machine";
+++        mediatek,platform = <&afe>;
+++        audio-routing =
+++                "Headphone", "HP_L",
+++                "Headphone", "HP_R",
+++                "LINPUT2", "AMIC",
+++                "RINPUT2", "AMIC";
+++        mediatek,audio-codec = <&wm8960>;
+++        pinctrl-names = "default";
+++        pinctrl-0 = <&i2s1_pins>;
+++    };
++ };
++ 
++ &bch {
++@@ -222,6 +236,10 @@
++ 	pinctrl-names = "default";
++ 	pinctrl-0 = <&i2c1_pins>;
++ 	status = "okay";
+++    wm8960: wm8960@1a {
+++        compatible = "wlf,wm8960";
+++        reg = <0x1a>;
+++    };
++ };
++ 
++ &i2c2 {
++@@ -526,7 +544,7 @@
++ 	spic1_pins: spic1-pins {
++ 		mux {
++ 			function = "spi";
++-			groups = "spic1_0";
+++			groups = "spic1_1";
++ 		};
++ 	};
++ 
++@@ -667,6 +685,11 @@
++ 	pinctrl-names = "default";
++ 	pinctrl-0 = <&spic1_pins>;
++ 	status = "okay";
+++    slic: slic@0 {
+++        compatible = "siliconlab,slic";
+++        reg = <0>;
+++        spi-max-frequency = <2000000>;
+++    };
++ };
++ 
++ &ssusb {
++--- a/drivers/spi/spidev.c
+++++ b/drivers/spi/spidev.c
++@@ -678,7 +678,7 @@ static const struct of_device_id spidev_
++ 	{ .compatible = "lwn,bk4" },
++ 	{ .compatible = "dh,dhcom-board" },
++ 	{ .compatible = "menlo,m53cpld" },
++-	{ .compatible = "siliconlabs,si3210" },
+++	{ .compatible = "siliconlab,slic" },
++ 	{},
++ };
++ MODULE_DEVICE_TABLE(of, spidev_dt_ids);
++--- a/sound/soc/codecs/wm8960.c
+++++ b/sound/soc/codecs/wm8960.c
++@@ -1418,11 +1418,14 @@ static int wm8960_i2c_probe(struct i2c_c
++ 	else if (i2c->dev.of_node)
++ 		wm8960_set_pdata_from_of(i2c, &wm8960->pdata);
++ 
+++    /* D2 MOD: Remove below code due to no real wm8960 codec in the EVB board */
+++#if 0
++ 	ret = wm8960_reset(wm8960->regmap);
++ 	if (ret != 0) {
++ 		dev_err(&i2c->dev, "Failed to issue reset\n");
++ 		return ret;
++ 	}
+++#endif
++ 
++ 	if (wm8960->pdata.shared_lrclk) {
++ 		ret = regmap_update_bits(wm8960->regmap, WM8960_ADDCTL2,
++--- a/sound/soc/mediatek/mt2701/mt2701-afe-pcm.c
+++++ b/sound/soc/mediatek/mt2701/mt2701-afe-pcm.c
++@@ -26,11 +26,11 @@ static const struct snd_pcm_hardware mt2
++ 		| SNDRV_PCM_INFO_RESUME | SNDRV_PCM_INFO_MMAP_VALID,
++ 	.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE
++ 		   | SNDRV_PCM_FMTBIT_S32_LE,
++-	.period_bytes_min = 1024,
++-	.period_bytes_max = 1024 * 256,
++-	.periods_min = 4,
+++	.period_bytes_min = 320,
+++	.period_bytes_max = 320 * 256,
+++	.periods_min = 2,
++ 	.periods_max = 1024,
++-	.buffer_bytes_max = 1024 * 1024,
+++	.buffer_bytes_max = 320 * 1024,
++ 	.fifo_size = 0,
++ };
++ 
++@@ -242,8 +242,10 @@ static int mt2701_afe_i2s_prepare(struct
++ 
++ 	i2s_path = &afe_priv->i2s_path[i2s_num];
++ 
+++#if 1 /* D2 MOD, do not return -EBUSY even if the sream is occupied, or snd_pcm_recover() will failed. */
++ 	if (i2s_path->occupied[substream->stream])
++-		return -EBUSY;
+++		return 0;
+++#endif
++ 
++ 	ret = mt2701_mclk_configuration(afe, mode ? 1 : i2s_num);
++ 	if (ret)

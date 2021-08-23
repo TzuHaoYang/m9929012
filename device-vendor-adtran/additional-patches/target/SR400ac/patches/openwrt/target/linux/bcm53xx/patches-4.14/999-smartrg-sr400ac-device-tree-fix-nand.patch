@@ -1,0 +1,78 @@
+From: Chad Monroe <chad.monroe@smartrg.com>
+Date: Wed, 06 Nov 2019 12:08:50 -0700
+Subject: bcm53xx: fix nand support for smartrg sr400ac
+
+Signed-off-by: Chad Monroe <chad.monroe@smartrg.com>
+--
+ bcm4708-smartrg-sr400ac.dts |   18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+--- a/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
++++ b/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
+@@ -9,7 +9,7 @@
+ /dts-v1/;
+ 
+ #include "bcm4708.dtsi"
+-#include "bcm5301x-nand-cs0-bch8.dtsi"
++#include "bcm5301x-nand-cs0.dtsi"
+ 
+ / {
+ 	compatible = "smartrg,sr400ac", "brcm,bcm4708";
+@@ -24,6 +24,26 @@
+ 		       0x88000000 0x08000000>;
+ 	};
+ 
++	nand: nand@18028000 {
++		nandcs@0 {
++                       nand-on-flash-bbt;
++			nand-ecc-algo = "bch";
++			nand-ecc-step-size = <512>;
++			nand-ecc-strength = <0>;
++			partitions {
++				compatible = "fixed-partitions";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				partition@0 {
++					label = "brcmnand";
++					reg = <0x00000000 0x10000000>;
++					compatible = "seama";
++				};
++			};
++		};
++	};
++
+ 	leds {
+ 		compatible = "gpio-leds";
+ 
+@@ -117,6 +133,30 @@
+ 
+ &spi_nor {
+ 	status = "okay";
++	partitions {
++		compatible = "fixed-partitions";
++		#address-cells = <1>;
++		#size-cells = <1>;
++                               
++		partition@0 {
++			label = "boot";
++			reg = <0x0000000 0x0040000>;
++			read-only;
++		};
++		partition@1 {
++			label = "firmware";
++			reg = <0x0040000 0x1FA0000>;
++			compatible = "brcm,trx";
++		};
++		partition@2 {
++			label = "mfginfo";
++			reg = <0x1FE0000 0x0010000>;
++		};
++		partition@3 {
++			label = "nvram";
++			reg = <0x1FF0000 0x0010000>;
++		};
++	};
+ };
+ 
+ &srab {

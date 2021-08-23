@@ -1,0 +1,33 @@
+diff -urN a/package/base-files/files/etc/init.d/boot b/package/base-files/files/etc/init.d/boot
+--- a/package/base-files/files/etc/init.d/boot	2021-06-10 20:46:38.478949253 +0530
++++ b/package/base-files/files/etc/init.d/boot	2021-06-10 20:19:36.223005660 +0530
+@@ -36,6 +36,17 @@
+ 	grep -q debugfs /proc/filesystems && /bin/mount -o noatime -t debugfs debugfs /sys/kernel/debug
+ 	grep -q bpf /proc/filesystems && /bin/mount -o nosuid,nodev,noexec,noatime,mode=0700 -t bpf bpffs /sys/fs/bpf
+ 	grep -q pstore /proc/filesystems && /bin/mount -o noatime -t pstore pstore /sys/fs/pstore
++	content=$(cat /FLASH/persist/osp_reboot_reason)
++        if [ -f "/sys/fs/pstore/dmesg-ramoops-0" ]; then
++                if [ "$content" == "REBOOT USER" ]; then
++                echo "REBOOT USER" > /FLASH/persist/osp_reboot_reason
++                elif [ "$content" == "REBOOT CLOUD" ]; then
++                echo "REBOOT CLOUD" > /FLASH/persist/osp_reboot_reason
++                else
++                echo "REBOOT CRASH" > /FLASH/persist/osp_reboot_reason
++                fi
++      	rm -rf /FLASH/persist/dm_reboot_guard
++        fi
+ 	[ "$FAILSAFE" = "true" ] && touch /tmp/.failsafe
+ 
+ 	/sbin/kmodloader
+diff -urN a/package/base-files/files/sbin/sysupgrade b/package/base-files/files/sbin/sysupgrade
+--- a/package/base-files/files/sbin/sysupgrade	2021-06-10 20:46:38.606949249 +0530
++++ b/package/base-files/files/sbin/sysupgrade	2021-06-10 20:16:46.415011564 +0530
+@@ -359,7 +359,7 @@
+ 
+ install_bin /sbin/upgraded
+ v "Commencing upgrade. Closing all shell sessions."
+-
++rm -rf /sys/fs/pstore/dmesg-ramoops-*
+ echo "REBOOT UPGRADE" > /FLASH/persist/osp_reboot_reason
+ rm -rf /FLASH/persist/dm_reboot_guard
+ 

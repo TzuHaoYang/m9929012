@@ -1,0 +1,73 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-03-25 02:39:08.760124181 +0530
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-04-16 14:45:50.742232005 +0530
+@@ -810,14 +810,18 @@
+ }
+ 
+ static void
+-util_wifi_transform_macaddr(char *mac, int idx)
++util_wifi_transform_macaddr(char *addr, int idx)
+ {
++#if 1  //WM_MODEL_SR400AC_PATCH
++    int max = 4;
++#endif //WM_MODEL_SR400AC_PATCH
++    
+     if (idx == 0)
+         return;
+ 
+-    mac[0] = ((((mac[0] >> 4) + 8 + idx - 2) & 0xf) << 4)
+-               | (mac[0] & 0xf)
+-               | 0x2;
++    addr[0] = addr[0] | 0x2;
++    addr[5] = (addr[5] & ~(max - 1))
++            | ((max - 1) & (addr[5] + idx));
+ }
+ 
+ static int
+@@ -2869,8 +2873,10 @@
+         changed->enabled ||
+         changed->mode ||
+         changed->vif_radio_idx ||
++#if 1  //WM_MODEL_SR400AC_PATCH
+         /* Create VIF interface if it is deleted while setting SSID or channel*/
+         (vconf->enabled &&  (access(F("/sys/class/net/%s", vif), X_OK) != 0))) {
++#endif //WM_MODEL_SR400AC_PATCH
+ 
+         hostap_ctrl_destroy(vif);
+ 
+@@ -2902,6 +2908,7 @@
+              rconf->channel_exists ? rconf->channel : 0);
+ 
+         nl_req_add_iface(&target_nl_global, vif, phy, vconf->mode, macaddr);
++#if 1  //WM_MODEL_SR400AC_PATCH
+         /* Set the mac-address using ip link command */ 
+         memset (buf,0,strlen(buf));
+         snprintf (buf, sizeof(buf), "ip link set %s addr %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
+@@ -2911,6 +2918,7 @@
+         LOGI("Updating macaddr for vif %s  with cmd : %s\n",vif, buf);
+         system(buf);
+ 
++#endif //WM_MODEL_SR400AC_PATCH
+         hostap_ctrl_discover(vif);
+ 
+         if (strstr(rconf->freq_band, "5G") && util_wifi_get_phy_vifs_cnt(phy) == 1) {
+@@ -2999,6 +3007,19 @@
+         hostap_ctrl_wps_session(vif, vconf->wps, vconf->wps_pbc);
+         util_ovsdb_wpa_clear(vconf->if_name);
+     }
++#if 1  //WM_MODEL_SR400AC_PATCH
++    if ((strlen(buf) == 0) && (!(err = util_net_get_macaddr(vif, macaddr))))
++    {
++        /* Set the mac-address using ip link command */ 
++        memset (buf,0,strlen(buf));
++        snprintf (buf, sizeof(buf), "ip link set %s addr %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
++			vif, 
++			macaddr[0], macaddr[1], macaddr[2],
++			macaddr[3], macaddr[4], macaddr[5]);
++     }
++     system(buf);
++#endif //WM_MODEL_SR400AC_PATCH
++
+ done:
+     util_cb_vif_state_update(vif);
+     util_cb_delayed_update(UTIL_CB_PHY, phy);

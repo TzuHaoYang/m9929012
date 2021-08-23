@@ -1,0 +1,14 @@
+diff --git a/target/linux/mediatek/mt7622/config-5.4 b/target/linux/mediatek/mt7622/config-5.4
+index b873bdc40c..4ab3ecf1db 100644
+--- a/target/linux/mediatek/mt7622/config-5.4
++++ b/target/linux/mediatek/mt7622/config-5.4
+@@ -404,6 +404,9 @@ CONFIG_MTD_UBI=y
+ CONFIG_MTD_UBI_BEB_LIMIT=20
+ CONFIG_MTD_UBI_BLOCK=y
+ CONFIG_MTD_UBI_WL_THRESHOLD=4096
++CONFIG_MTD_BLOCK2MTD=y
++CONFIG_MTD_CMDLINE_PARTS=y
++CONFIG_MTD_UBI_GLUEBI=y
+ # CONFIG_MTK_CMDQ is not set
+ # CONFIG_MTK_CQDMA is not set
+ CONFIG_MTK_EFUSE=y

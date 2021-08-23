@@ -1,0 +1,70 @@
+---
+description: packages needed from the srg-plumeos feed
+feeds:
+  - name: srg_plumeos
+    path: ../../../srg-plumeos
+packages:
+  - bin-mediatek
+  - cryptsetup
+  - dmc
+  - dosfstools
+  - e2fsprogs
+  - easycwmp
+  - flash-images
+  - fs-pstore
+  - fs-pstore-tools
+  - grep
+  - img-gen
+  - kmod-crypto-user
+  - kmod-fs-pstore
+  - kmod-dax
+  - kmod-dm
+  - kmod-srg-initrd-ext
+  - kmod-tun
+  - libaio
+  - libcomerr
+  - libdevmapper
+  - libext2fs
+  - liblzo
+  - libmbedtls
+  - libmicroxml
+  - libopenssl-conf
+  - libpcre
+  - libss
+  - lvm2normal
+  - mkits-multiple-config
+  - nand-add-oob
+  - openssh-client
+  - openssh-client-utils
+  - openssl-util
+  - openvpn-openssl
+  - procps-ng
+  - procps-ng-ps
+  - srg-emmc-tools
+  - srg-img-tools
+  - srg-nand-tools
+  - srg-scripts
+  - uboot-envtools
+  - ucaf
+diffconfig: |
+  CONFIG_BUSYBOX_CONFIG_CHPASSWD=y
+  CONFIG_BUSYBOX_CONFIG_FEATURE_RESIZE_PRINT=y
+  CONFIG_BUSYBOX_CONFIG_FEATURE_STAT_FILESYSTEM=y
+  CONFIG_BUSYBOX_CONFIG_FEATURE_STAT_FORMAT=y
+  CONFIG_BUSYBOX_CONFIG_RESIZE=y
+  CONFIG_BUSYBOX_CONFIG_STAT=y
+  CONFIG_LIBCURL_NO_SMB="!"
+  CONFIG_OPENVPN_openssl_ENABLE_LZO=y
+  CONFIG_OPENVPN_openssl_ENABLE_LZ4=y
+  CONFIG_OPENVPN_openssl_ENABLE_FRAGMENT=y
+  CONFIG_OPENVPN_openssl_ENABLE_MULTIHOME=y
+  CONFIG_OPENVPN_openssl_ENABLE_PORT_SHARE=y
+  CONFIG_OPENVPN_openssl_ENABLE_DEF_AUTH=y
+  CONFIG_OPENVPN_openssl_ENABLE_PF=y
+  CONFIG_OPENVPN_openssl_ENABLE_SMALL=y
+  CONFIG_SRG-SCRIPTS-COMMON=y
+  CONFIG_SRG-SCRIPTS-FLASH=y
+  CONFIG_SRG-SCRIPTS-PLATFORM=y
+  CONFIG_SRG-SCRIPTS-UPGRADE=n
+  CONFIG_DEFAULT_kmod-ata-ahci-mtk=y
+  CONFIG_SRG_TARGET="polecat"

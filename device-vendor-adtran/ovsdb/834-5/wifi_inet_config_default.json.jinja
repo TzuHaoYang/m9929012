@@ -1,0 +1,37 @@
+[
+    "Open_vSwitch",
+    {% if CONFIG_MANAGER_NM %}
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "br-wan",
+            "ip_assign_scheme": "dhcp",
+            "if_type": "bridge",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": true
+        }
+    },
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "br-lan",
+            "ip_assign_scheme": "static",
+            "inet_addr": "192.168.1.1",
+            "netmask": "255.255.255.0",
+            "if_type": "bridge",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": false
+        }
+    }
+    {% else %}
+    { "op": "comment", "comment": "" }
+    {% endif %}
+]

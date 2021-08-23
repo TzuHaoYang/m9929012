@@ -1,0 +1,31 @@
+diff -urN a/package/base-files/files/lib/preinit/84_mount_pstore b/package/base-files/files/lib/preinit/84_mount_pstore
+--- a/package/base-files/files/lib/preinit/84_mount_pstore	1970-01-01 05:30:00.000000000 +0530
++++ b/package/base-files/files/lib/preinit/84_mount_pstore	2021-05-26 15:59:52.056491692 +0530
+@@ -0,0 +1,8 @@
++#!/bin/sh
++#
++# Mount pstore path to store the REBOOT_CRASH reason
++#
++
++mount -t pstore pstore /sys/fs/pstore/
++
++
+
+diff -urN a/target/linux/bcm53xx/config-4.14 b/target/linux/bcm53xx/config-4.14
+--- a/target/linux/bcm53xx/config-4.14	2021-05-26 19:50:55.712175165 +0530
++++ b/target/linux/bcm53xx/config-4.14	2021-05-26 17:23:05.756377679 +0530
+@@ -361,3 +361,14 @@
+ CONFIG_ZBOOT_ROM_TEXT=0x0
+ CONFIG_ZLIB_DEFLATE=y
+ CONFIG_ZLIB_INFLATE=y
++CONFIG_PSTORE=y
++CONFIG_PSTORE_CONSOLE=y
++CONFIG_PSTORE_PMSG=y
++CONFIG_PSTORE_RAM=y
++# CONFIG_PSTORE_ZLIB_COMPRESS is not set
++# CONFIG_PSTORE_DEFLATE_COMPRESS is not set
++# CONFIG_PSTORE_LZO_COMPRESS is not set
++# CONFIG_PSTORE_LZ4_COMPRESS is not set
++# CONFIG_PSTORE_LZ4HC_COMPRESS is not set
++# CONFIG_PSTORE_842_COMPRESS is not set
++# CONFIG_PSTORE_ZSTD_COMPRESS is not set

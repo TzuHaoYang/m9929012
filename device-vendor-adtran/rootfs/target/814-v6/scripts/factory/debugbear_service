@@ -1,0 +1,41 @@
+#!/bin/sh
+
+PORT=${IPORT:-20022}
+IF=${IF:-eth0.4}
+
+BIND_TO_IF=1
+
+# write to syslog and echo message
+log() {
+    echo $1
+    logger $1
+}
+
+# try to connect to manufacturing server couple of times
+while true
+do
+    # Check if dropbearkeys exists
+    [ -e "/var/tmp/dropbear_rsa_host_key" ] || continue
+
+    # Check if interface exists
+    [ -d "/sys/class/net/$IF" ] || continue
+
+    if [ "${BIND_TO_IF:-0}" -eq 0 ]
+    then
+        # Check if VLAN.4 actually got an IP
+        IPADDR="$(ifconfig $IF | tr -s ' :' ':' | grep inet:addr | cut -d: -f4)"
+        [ -n "$IPADDR" ] || continue
+    else
+        # Use the interface name instead of IP address
+        IPADDR="$IF"
+    fi
+
+    log "Starting debugbear..."
+
+    # Overwrite our current PID file; delete it first otherwise dropbear refuses to start
+    # exec /usr/opensync/tools/dropbear -F -p $IPADDR:$PORT -P /var/run/debugbear.pid -r /tmp/dropbear_rsa_host_key
+    dropbear -F -p $PORT -P /var/run/debugbear.pid -r /var/tmp/dropbear_rsa_host_key
+
+    [ $? == 0 ] || sleep 1
+done
+

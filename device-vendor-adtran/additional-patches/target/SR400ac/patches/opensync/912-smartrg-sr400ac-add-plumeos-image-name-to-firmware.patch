@@ -1,0 +1,13 @@
+diff --git a/src/lib/version/version-lib.sh b/src/lib/version/version-lib.sh
+index f7a1eaa..cf146ac 100644
+--- a/src/lib/version/version-lib.sh
++++ b/src/lib/version/version-lib.sh
+@@ -164,4 +164,8 @@ if [ -n "${VERSION_APPEND_END}" ]; then
+     APP_VERSION="${APP_VERSION}-${VERSION_APPEND_END}"
+ fi
+ 
++if [ -s "plumeos_release" ]; then
++   APP_VERSION=$(cat plumeos_release | grep PLUME_OS_IMAGE_VERSION | awk -F "=" '{print $2}' | tr -d '"')
++fi
++
+ cd - >/dev/null

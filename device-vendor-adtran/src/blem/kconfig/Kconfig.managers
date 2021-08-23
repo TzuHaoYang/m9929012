@@ -1,0 +1,12 @@
+menuconfig MANAGER_BLEM
+    bool "Bluetooth Manager (BLEM)"
+    default n
+    help
+        Enable Bluetooth Manager (BLEM)
+
+    config MANAGER_BLEM_CFG
+        depends on MANAGER_BLEM
+        string "BLEM Startup configuration"
+        default "blem;true;needs_plan_b=true"
+        help
+            Bluetooth Manager startup configuration

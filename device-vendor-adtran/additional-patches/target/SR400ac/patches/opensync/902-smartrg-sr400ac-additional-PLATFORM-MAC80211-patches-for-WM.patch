@@ -1,0 +1,116 @@
+diff --git a/platform/cfg80211/src/lib/target/target_stats.c b/platform/cfg80211/src/lib/target/target_stats.c
+index fae863f..7e5e641 100644
+--- a/platform/cfg80211/src/lib/target/target_stats.c
++++ b/platform/cfg80211/src/lib/target/target_stats.c
+@@ -43,10 +43,34 @@ check_interface_exists(char *if_name)
+     return false;
+ }
+
++
++static bool
++check_radio_exists(char *phy_name)
++{
++    struct dirent *i;
++    DIR *d;
++#ifdef CONFIG_PLATFORM_MAC80211
++    if (WARN_ON(!(d = opendir(CONFIG_MAC80211_WIPHY_PATH))))
++#else
++    if (WARN_ON(!(d = opendir("/sys/class/net"))))
++#endif
++        return false;
++
++    while ((i = readdir(d)))
++        if (strcmp(i->d_name, phy_name) == 0) {
++            closedir(d);
++            return true;
++        }
++
++    closedir(d);
++    return false;
++}
++
++
+ bool target_is_radio_interface_ready(char *phy_name)
+ {
+     bool rc;
+-    rc = check_interface_exists(phy_name);
++    rc = check_radio_exists(phy_name);
+     if (true != rc)
+     {
+         return false;
+diff --git a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+index 2a69714..8b7331a 100644
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -735,7 +735,7 @@ util_wifi_get_phy_any_ap_vif(const char *phy,
+         return -1;
+
+     for (p = readdir(d); p ; p = readdir(d)) {
+-        if (p->d_name) {
++        if (p->d_name && strncmp(p->d_name, ".", 1)) {
+             strscpy(buf, p->d_name, len);
+             break;
+         }
+@@ -789,7 +789,7 @@ util_wifi_get_phy_all_vifs(const char *phy,
+         return -1;
+
+     for (p = readdir(d); p ; p = readdir(d)) {
+-        if (p->d_name)
++        if (p->d_name && strncmp(p->d_name, ".", 1))
+             snprintf(buf + strlen(buf), len - strlen(buf), "%s ", p->d_name);
+     }
+ #else
+@@ -925,7 +925,7 @@ util_wifi_get_phy_vifs(const char *phy,
+         return -1;
+
+     for (p = readdir(d); p ; p = readdir(d)) {
+-        if (p->d_name)
++        if (p->d_name && strncmp(p->d_name, ".", 1))
+             snprintf(buf + strlen(buf), len - strlen(buf), "%s ", p->d_name);
+     }
+ #else
+@@ -1269,9 +1269,9 @@ util_cb_delayed_update_all(void)
+     if (!(d = opendir("/sys/class/ieee80211")))
+         goto vif_update;
+     for (i = readdir(d); i; i = readdir(d)) {
+-	if (strstr(i->d_name, "phy")) {
+-	    util_cb_delayed_update(UTIL_CB_PHY, i->d_name);
+-	}
++        if (strstr(i->d_name, "phy")) {
++            util_cb_delayed_update(UTIL_CB_PHY, i->d_name);
++        }
+     }
+     closedir(d);
+
+diff --git a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+index 8b7331a..7e87f7a 100644
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -715,6 +715,24 @@ util_wifi_get_ap_vlan_aid(const char *ifname)
+     return atoi(strstr(ifname, ".sta") + strlen(".sta"));
+ }
+
++#ifdef CONFIG_PLATFORM_MAC80211
++static int
++util_is_vif_active(const char *phy_path, const char *ifname)
++{
++    char path_opstate[120] = { 0 };
++    const char *buf_opstate;
++
++    snprintf(path_opstate, sizeof(path_opstate), "%s/%s/operstate", phy_path, ifname);
++
++    buf_opstate = strexa("cat", path_opstate);
++
++    if (!buf_opstate)
++        return -EINVAL;
++
++    return strcmp(buf_opstate, "up");
++}
++#endif
++
+ static int
+ util_wifi_get_phy_any_ap_vif(const char *phy,
+                        char *buf,
+--
+2.25.1
+

@@ -1,0 +1,54 @@
+config interface 'loopback'
+        option ifname 'lo'
+        option proto 'static'
+        option ipaddr '127.0.0.1'
+        option netmask '255.0.0.0'
+
+config globals 'globals'
+        option ula_prefix 'fd15:70c3:faec::/48'
+
+config interface 'lan'
+        option ifname 'br-lan'
+        option proto 'static'
+        option ipaddr '192.168.1.1'
+        option netmask '255.255.255.0'
+        option ip6assign '60'
+        option vlan_filtering '1'
+
+config device 'lan0'
+        option ifname 'lan0'
+        option proto 'static'
+
+config device 'lan1'
+        option ifname 'lan1'
+        option proto 'static'
+
+config device 'lan2'
+        option ifname 'lan2'
+        option proto 'static'
+
+config device 'lan3'
+        option ifname 'lan3'
+        option proto 'static'
+
+config interface 'wan'
+        option ifname 'wan'
+
+config interface 'br-wan'
+        option ifname 'br-wan'
+        option proto 'dhcp'
+
+config interface 'wan6'
+        option ifname 'wan'
+        option proto 'dhcpv6'
+
+config switch
+        option name 'switch0'
+        option reset '1'
+        option enable_vlan '1'
+
+config switch_vlan
+        option device 'switch0'
+        option vlan '1'
+        option ports '0 1 2 3 5t'
+

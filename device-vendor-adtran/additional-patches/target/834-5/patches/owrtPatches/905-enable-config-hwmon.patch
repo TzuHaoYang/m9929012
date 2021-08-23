@@ -1,0 +1,11 @@
+diff --git a/target/linux/mediatek/mt7622/config-5.4 b/target/linux/mediatek/mt7622/config-5.4
+--- a/target/linux/mediatek/mt7622/config-5.4
++++ b/target/linux/mediatek/mt7622/config-5.4
+@@ -201,6 +201,7 @@ CONFIG_HAS_DMA=y
+ CONFIG_HAS_IOMEM=y
+ CONFIG_HAS_IOPORT_MAP=y
+ CONFIG_HOLES_IN_ZONE=y
++CONFIG_HWMON=y
+ CONFIG_HZ=250
+ CONFIG_HZ_250=y
+ CONFIG_ICPLUS_PHY=y

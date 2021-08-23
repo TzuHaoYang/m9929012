@@ -1,0 +1,11 @@
+diff -urN a/package/kernel/mac80211/files/lib/wifi/mac80211.sh b/package/kernel/mac80211/files/lib/wifi/mac80211.sh
+--- a/package/kernel/mac80211/files/lib/wifi/mac80211.sh	2021-06-30 13:54:55.911724665 +0530
++++ b/package/kernel/mac80211/files/lib/wifi/mac80211.sh	2021-06-30 14:01:25.787711109 +0530
+@@ -111,6 +111,7 @@
+ 			set wireless.radio${devidx}.type=mac80211
+ 			set wireless.radio${devidx}.channel=${channel}
+ 			set wireless.radio${devidx}.hwmode=11${mode_band}
++			set wireless.radio${devidx}.wps_pushbutton=1
+ 			${dev_id}
+ 			${ht_capab}
+ 			set wireless.radio${devidx}.disabled=1

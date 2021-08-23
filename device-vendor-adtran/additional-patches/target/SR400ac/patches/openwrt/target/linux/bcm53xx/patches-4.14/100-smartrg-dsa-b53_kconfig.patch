@@ -1,0 +1,18 @@
+From: Tim Hayes <tim.hayes@smartrg.com>
+Date: Tue, 31 Dec 2019 12:26:10 -0800
+Subject: [PATCH] OWRT-4719 Kconfig patch
+
+---
+
+diff --git a/drivers/net/dsa/b53/Kconfig b/drivers/net/dsa/b53/Kconfig
+index 27f32a5..b413d10 100644
+--- a/drivers/net/dsa/b53/Kconfig
++++ b/drivers/net/dsa/b53/Kconfig
+@@ -1,6 +1,7 @@
+ menuconfig B53
+ 	tristate "Broadcom BCM53xx managed switch support"
+ 	depends on NET_DSA
++	select NET_DSA_TAG_BRCM
+ 	help
+ 	  This driver adds support for Broadcom managed switch chips. It supports
+ 	  BCM5325E, BCM5365, BCM539x, BCM53115 and BCM53125 as well as BCM63XX

@@ -1,0 +1,38 @@
+diff -urN a/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c b/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c	2021-05-26 16:05:28.028173839 +0530
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_scan.c	2021-05-26 00:42:01.389768229 +0530
+@@ -331,6 +331,18 @@
+                     util_freq_to_chan((int)nla_get_u32(bss[NL80211_BSS_FREQUENCY]));
+     if (bss[NL80211_BSS_SIGNAL_MBM])
+         neighbor->entry.sig = ((int) nla_get_u32(bss[NL80211_BSS_SIGNAL_MBM])) / 100;
++        /*
++            TODO: At this time, we report signal as SNR by using fixed noise floor.
++            Need to revise the implementation to support dynamic noise floor in
++            opensync 2.2 and above.
++        */
++        /* Convert to SNR before sending to cloud */
++        neighbor->entry.sig -= DEFAULT_NOISE_FLOOR;
++        /* Prevent sending negative values */
++        if (neighbor->entry.sig < 0) {
++            LOGT("Found negative signal/noise ratio %d, forcing value to 0", neighbor->entry.sig);
++            neighbor->entry.sig = 0;
++        }    
+     if (bss[NL80211_BSS_SEEN_MS_AGO])
+         neighbor->entry.lastseen = nla_get_u32(bss[NL80211_BSS_SEEN_MS_AGO]);
+     if (bss[NL80211_BSS_BSSID]) {
+@@ -365,11 +377,13 @@
+             bssie += bssie[1] + 2;
+         }
+     }
+-    LOGT("%s Parsed %s SSID %s chanwidth %d",
++    LOGT("%s Parsed %s SSID %s chan %d chanwidth %d signal %d",
+         __func__,
+          radio_get_name_from_type(nl_call_param->type),
+          neighbor->entry.ssid,
+-         neighbor->entry.chanwidth);
++         neighbor->entry.chan,
++         neighbor->entry.chanwidth,
++         neighbor->entry.sig);
+ 
+     ds_dlist_insert_tail(nl_call_param->list, neighbor);
+     return NL_OK;

@@ -1,0 +1,71 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-19 10:40:47.074737255 +0530
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-19 12:10:36.574614205 +0530
+@@ -85,8 +85,11 @@
+ #define HOME_AP_24      "home-ap-24"
+ #define BHAUL_AP_24     "bhaul-ap-24"
+ 
++#if 1  // WM_MT_834_5 begin
+ #define WIFI_PREFIX     "wifi"
+ #define WIFI_2G         "wifi2g"
++#define VIF_ETH0_BASE_MAC_834_5 "eth0"
++#endif // WM_MT_834_5 end
+ 
+ #define UTIL_CB_PHY         "phy"
+ #define UTIL_CB_VIF         "vif"
+@@ -670,7 +673,14 @@
+ {
+     char path[128];
+     int err;
++
++#if 1  //WM_MT_834_5 begin
++    snprintf(path, sizeof(path), "/sys/class/net/%s/address",
++            VIF_ETH0_BASE_MAC_834_5);
++#else  //WM_MT_834_5 else
+     snprintf(path, sizeof(path), "/sys/class/ieee80211/%s/addresses", phy);
++#endif //WM_MT_834_5 end
++
+     err = util_file_read_str(path, buf, len);
+     if (err > 0)
+         err = 0;
+@@ -892,14 +902,26 @@
+ }
+ 
+ static void
++#if 1  // WM_MT_834_5 begin
++util_wifi_transform_macaddr(char *phy, char *mac, int idx)
++#else  // WM_MT_834_5 else
+ util_wifi_transform_macaddr(char *mac, int idx)
++#endif // WM_MT_834_5 end
+ {
+     if (idx == 0)
+         return;
+-
++#if 1  // WM_MT_834_5 begin
++    int phyId = 0;
++    sscanf(phy,"phy%d",&phyId);
++    mac[5] = (((((mac[5] >> 4) + 8 + idx - 2) & 0xf) << 4)
++               | (mac[5] & 0xf)
++               | 0x2) + phyId;;
++    LOGI ("%s retrieved phyId: %d", phy, phyId);
++#else  // WM_MT_834_5 else
+     mac[0] = ((((mac[0] >> 4) + 8 + idx - 2) & 0xf) << 4)
+                | (mac[0] & 0xf)
+                | 0x2;
++#endif // WM_MT_834_5 end
+ }
+ 
+ static int
+@@ -916,8 +938,11 @@
+         return err;
+     }
+ 
++#if 1  // WM_MT_834_5 begin
++    util_wifi_transform_macaddr(phy, macaddr, idx);
++#else  // WM_MT_834_5 else
+     util_wifi_transform_macaddr(macaddr, idx);
+-
++#endif // WM_MT_834_5 end
+     return 0;
+ }
+ 

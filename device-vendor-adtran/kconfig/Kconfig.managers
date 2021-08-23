@@ -1,0 +1,4 @@
+comment "Vendor Managers"
+
+rsource "../src/blem/kconfig/Kconfig.managers"
+

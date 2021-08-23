@@ -1,0 +1,13 @@
+Index: linux-4.14.169/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
+===================================================================
+--- linux-4.14.169.orig/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
++++ linux-4.14.169/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
+@@ -144,7 +144,7 @@
+ 
+ 		wps {
+ 			label = "WPS";
+-			linux,code = <KEY_WPS_BUTTON>;
++			linux,code = <BTN_1>;
+ 			gpios = <&chipcommon 7 GPIO_ACTIVE_LOW>;
+ 		};
+ 

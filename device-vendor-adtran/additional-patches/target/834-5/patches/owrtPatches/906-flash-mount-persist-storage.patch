@@ -1,0 +1,43 @@
+diff --git a/package/base-files/files/etc/sysupgrade.conf b/package/base-files/files/etc/sysupgrade.conf
+index e06fd5e332..f85ef7171b 100644
+--- a/package/base-files/files/etc/sysupgrade.conf
++++ b/package/base-files/files/etc/sysupgrade.conf
+@@ -3,3 +3,4 @@
+ 
+ # /etc/example.conf
+ # /etc/openvpn/
++/FLASH
+diff --git a/package/base-files/files/lib/preinit/83_flash_mount b/package/base-files/files/lib/preinit/83_flash_mount
+new file mode 100644
+index 0000000000..f90dd73a97
+--- /dev/null
++++ b/package/base-files/files/lib/preinit/83_flash_mount
+@@ -0,0 +1,14 @@
++#!/bin/sh
++do_flash_mount() {
++    if [ ! -d "/FLASH" ]; then
++        mkdir -p /FLASH
++    fi
++    mount -t ext4 /dev/mmcblk0p9 /FLASH
++    if [ $? -eq 0 ]; then
++       echo "/FLASH Mount success!"
++    else
++       echo "Something went wrong with the /FLASH mount..."
++    fi
++}
++boot_hook_add preinit_main do_flash_mount
++
+diff --git a/package/base-files/files/sbin/sysupgrade b/package/base-files/files/sbin/sysupgrade
+index 7e0a00e13b..e310e2252f 100755
+--- a/package/base-files/files/sbin/sysupgrade
++++ b/package/base-files/files/sbin/sysupgrade
+@@ -360,6 +360,9 @@ fi
+ install_bin /sbin/upgraded
+ v "Commencing upgrade. Closing all shell sessions."
+ 
++echo "REBOOT UPGRADE" > /FLASH/persist/osp_reboot_reason
++rm -rf /FLASH/persist/dm_reboot_guard
++
+ COMMAND='/lib/upgrade/do_stage2'
+ 
+ if [ -n "$FAILSAFE" ]; then

@@ -1,0 +1,18 @@
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -3085,6 +3085,7 @@ target_vif_config_set2(const struct sche
+ 
+     util_vif_config_athnewind(phy);
+ 
++    hostap_ctrl_apply(vif, vconf, rconf, cconfs, num_cconfs);
+     if ((changed->mac_list_type) || (changed->mac_list)) {
+         if (vconf->mac_list_type_exists)
+             if (!util_hostapd_acl_update(phy, vif,
+@@ -3093,7 +3094,6 @@ target_vif_config_set2(const struct sche
+                 LOGT("%s: failed to update mac acl configurations", __func__);
+     }
+ 
+-    hostap_ctrl_apply(vif, vconf, rconf, cconfs, num_cconfs);
+     if (changed->wps_pbc || changed->wps || changed->wps_pbc_key_id) {
+         hostap_ctrl_wps_session(vif, vconf->wps, vconf->wps_pbc);
+         util_ovsdb_wpa_clear(vconf->if_name);

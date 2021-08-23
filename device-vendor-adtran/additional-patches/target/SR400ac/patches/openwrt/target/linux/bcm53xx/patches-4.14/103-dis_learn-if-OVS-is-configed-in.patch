@@ -1,0 +1,58 @@
+From 43c6f534132182d95dd145cb671c0cd8d3be48b2 Mon Sep 17 00:00:00 2001
+From: Tim Hayes <tim.hayes@smartrg.com>
+Date: Mon, 5 Oct 2020 15:03:59 -0700
+Subject: [PATCH] OWRT-5573 added dis_learn if OVS is configed in
+
+---
+ drivers/net/dsa/b53/b53_common.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
+index 12b8ed5..5809b56 100644
+--- a/drivers/net/dsa/b53/b53_common.c
++++ b/drivers/net/dsa/b53/b53_common.c
+@@ -31,6 +31,12 @@
+ #include <linux/debugfs.h>
+ #include <net/dsa.h>
+ 
++#ifdef CONFIG_OPENVSWITCH_MODULE
++u8 dis_learn=0xFF;
++#else
++u8 dis_learn=0;
++#endif
++
+ #include "b53_regs.h"
+ #include "b53_priv.h"
+ 
+@@ -1793,7 +1799,9 @@ void b53_br_set_stp_state(struct dsa_switch *ds, int port, u8 state)
+ 		hw_state |= PORT_CTRL_TX_DISABLE;
+ 		break;
+ 	case BR_STATE_LEARNING:
+-		hw_state = PORT_CTRL_LEARN_STATE;
++		if (dis_learn==0) {
++			hw_state = PORT_CTRL_LEARN_STATE;
++		}
+ 		hw_state |= PORT_CTRL_TX_DISABLE;
+ 		break;
+ 	case BR_STATE_FORWARDING:
+@@ -2359,6 +2367,8 @@ static int b53_switch_init(struct b53_device *dev)
+ 			return ret;
+ 	}
+ 
++	b53_write8(dev, B53_CTRL_PAGE, DIS_LEARN,dis_learn);
++
+ 	{
+ 	static struct dentry *debugfs_dir = NULL;
+ 	debugfs_dir = debugfs_create_dir("b53_common", NULL);
+@@ -2507,7 +2517,7 @@ int b53_switch_register(struct b53_device *dev)
+ 	if (ret)
+ 		return ret;
+ 
+-	pr_info("found switch: %s, rev %i\n", dev->name, dev->core_rev);
++	pr_info("found switch: %s, rev %i dis_learn 0x%x\n", dev->name, dev->core_rev,dis_learn);
+ 
+ 	ret=dsa_register_switch(dev->ds);
+ 	if (ret==0) {
+-- 
+1.9.1
+

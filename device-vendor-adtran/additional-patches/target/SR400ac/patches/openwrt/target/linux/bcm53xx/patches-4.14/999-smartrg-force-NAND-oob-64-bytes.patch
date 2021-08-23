@@ -1,0 +1,17 @@
+Index: linux-4.14.180/drivers/mtd/nand/nand_base.c
+===================================================================
+--- linux-4.14.180.orig/drivers/mtd/nand/nand_base.c
++++ linux-4.14.180/drivers/mtd/nand/nand_base.c
+@@ -4034,6 +4034,12 @@ ident_done:
+ 	pr_info("%d MiB, %s, erase size: %d KiB, page size: %d, OOB size: %d\n",
+ 		(int)(chip->chipsize >> 20), nand_is_slc(chip) ? "SLC" : "MLC",
+ 		mtd->erasesize >> 10, mtd->writesize, mtd->oobsize);
++
++	if ( mtd->oobsize != 64 )
++	{
++		mtd->oobsize = 64;
++		pr_info("10.8 Compatibilty FORCED! OOB size: %d\n", mtd->oobsize );
++	}
+ 	return 0;
+ }
+ 

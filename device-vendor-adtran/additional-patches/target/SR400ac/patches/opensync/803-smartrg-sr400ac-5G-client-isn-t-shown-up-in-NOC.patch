@@ -1,0 +1,159 @@
+From 581dc2e54ecc3154c41132fd2d0c7357f9e60ecc Mon Sep 17 00:00:00 2001
+From: Kenneth Lu <klu@plume.com>
+Date: Thu, 29 Apr 2021 19:49:00 +0800
+Subject: [PATCH] EXTADT-28: 5G client isn't shown up in NOC
+
+It was found that 5G associated clinet report disconnected state to NOC
+which dispaly incorrect online devices.
+
+The root cause is that SM can't initialize 5G radio list due to the
+wrong freq_band detection of Wifi_Radio_State. Target layer just return
+the first channel of the support channel list and for full 5G band, the
+freq_band will be 5GL. It was mismatched with Wifi_Stats_Config
+radio_type and SM skip configuring 5G radio stats.
+
+Added new API to detect suppport band after parsing all channel list.
+
+Signed-off-by: Kenneth Lu <klu@plume.com>
+---
+ platform/cfg80211/src/lib/nl80211/src/nl80211_target.c | 71 ++++++++++++++++++++++++++++
+ platform/cfg80211/src/lib/target/wiphy_info.c          | 20 ++++++--
+ 2 files changed, 88 insertions(+), 3 deletions(-)
+
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c b/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c
+index 7b7beb3..96247fc 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c
+@@ -521,6 +521,77 @@ int nl_resp_parse_iface_supp_chan(struct nl_msg *msg, void *arg)
+     return NL_SKIP;
+ }
+
++int nl_resp_parse_iface_supp_band(struct nl_msg *msg, void *arg)
++{
++    int *flags = arg;
++    int channel;
++    int chan_flag = 0;
++    struct nlattr *tb[NL80211_ATTR_MAX + 1];
++    struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
++
++    memset(tb, 0, sizeof(tb));
++    nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(gnlh, 0), genlmsg_attrlen(gnlh, 0), NULL);
++
++    if (tb[NL80211_ATTR_WIPHY_BANDS]) {
++        struct nlattr *nl_band = NULL;
++        int rem_band = 0;
++
++        nla_for_each_nested(nl_band, tb[NL80211_ATTR_WIPHY_BANDS], rem_band) {
++            struct nlattr *tb_band[NL80211_BAND_ATTR_MAX + 1];
++
++            nla_parse(tb_band, NL80211_BAND_ATTR_MAX, nla_data(nl_band), nla_len(nl_band), NULL);
++            if (tb_band[NL80211_BAND_ATTR_FREQS]) {
++                struct nlattr *tb_freq[NL80211_FREQUENCY_ATTR_MAX + 1];
++                struct nlattr *nl_freq = NULL;
++                int rem_freq = 0;
++
++                nla_for_each_nested(nl_freq, tb_band[NL80211_BAND_ATTR_FREQS], rem_freq) {
++                    static struct nla_policy freq_policy[NL80211_FREQUENCY_ATTR_MAX + 1] = {
++                        [NL80211_FREQUENCY_ATTR_FREQ] = { .type = NLA_U32 },
++                        [NL80211_FREQUENCY_ATTR_DISABLED] = { .type = NLA_FLAG },
++                    };
++
++                    nla_parse(tb_freq, NL80211_FREQUENCY_ATTR_MAX, nla_data(nl_freq), nla_len(nl_freq), freq_policy);
++                    if (!tb_freq[NL80211_FREQUENCY_ATTR_FREQ])
++                        continue;
++                    if (tb_freq[NL80211_FREQUENCY_ATTR_DISABLED])
++                        continue;
++
++                    channel = util_freq_to_chan(nla_get_u32(tb_freq[NL80211_FREQUENCY_ATTR_FREQ]));
++                    chan_classify(channel, &chan_flag);
++                    *flags = chan_flag;
++                }
++            }
++        }
++    }
++
++    return NL_SKIP;
++}
++
++int nl_req_get_iface_supp_band(struct nl_global_info *nl_global, const char *ifname)
++{
++    struct nl_msg *msg;
++    int flags = -EINVAL;
++    int phy_idx = -EINVAL;
++    int iface_index = -EINVAL;
++
++    if (!nl_global)
++        return -EINVAL;
++
++    if ((phy_idx = util_sys_phyname_to_idx(ifname)) < 0)
++        return -EINVAL;
++
++    msg = nlmsg_init(nl_global, NL80211_CMD_GET_WIPHY, false);
++    if (!msg)
++        return -ENOMEM;
++
++    nla_put_u32(msg, NL80211_ATTR_WIPHY, phy_idx);
++
++    nlmsg_send_and_recv(nl_global, msg, nl_resp_parse_iface_supp_band, &flags);
++
++    return flags;
++}
++
+ int nl_req_get_iface_supp_chan(struct nl_global_info *nl_global, const char *ifname)
+ {
+     struct nl_msg *msg;
+diff --git a/platform/cfg80211/src/lib/target/wiphy_info.c b/platform/cfg80211/src/lib/target/wiphy_info.c
+index 9f29049..e18f7fe 100644
+--- a/platform/cfg80211/src/lib/target/wiphy_info.c
++++ b/platform/cfg80211/src/lib/target/wiphy_info.c
+@@ -155,7 +155,7 @@ identify_chip(const char *phyname,
+     return 0;
+ }
+
+-static void
++void
+ chan_classify(int c, int *flags)
+ {
+     if (c >= 1 && c <= 20)
+@@ -169,7 +169,7 @@ chan_classify(int c, int *flags)
+ static const char *
+ chan_get_band_str(int flags)
+ {
+-    if (flags & CHAN_2GHZ)
++    if ((flags & CHAN_2GHZ) && !(flags & CHAN_5GHZ_LOWER) || !(flags & CHAN_5GHZ_UPPER))
+         return "2.4G";
+     else if ((flags & CHAN_5GHZ_LOWER) && (flags & CHAN_5GHZ_UPPER))
+         return "5G";
+@@ -182,6 +182,20 @@ chan_get_band_str(int flags)
+     return NULL;
+ }
+
++static int
++identify_band_nl80211(struct nl_global_info *nl_global,
++                          const char *phyname,
++                          const char **band)
++{
++    int flags = 0;
++
++    if ((flags = nl_req_get_iface_supp_band(nl_global, phyname)) > 0) {
++        *band = chan_get_band_str(flags);
++    }
++
++    return *band ? 0 : -ENOENT;
++}
++
+ static int
+ identify_band_wlanconfig2(struct nl_global_info *nl_global,
+                           const char *phyname,
+@@ -205,7 +219,7 @@ identify_band(struct nl_global_info *nl_global,
+ {
+     int err;
+
+-    err = identify_band_wlanconfig2(nl_global, phyname, band);
++    err = identify_band_nl80211(nl_global, phyname, band);
+
+     return err;
+ }
+--
+2.25.1
+

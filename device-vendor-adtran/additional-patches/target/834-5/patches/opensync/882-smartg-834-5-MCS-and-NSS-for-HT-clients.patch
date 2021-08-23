@@ -1,0 +1,18 @@
+diff -urN a/platform/cfg80211/src/lib/bsal/src/bsal.c a/platform/cfg80211/src/lib/bsal/src/bsal.c
+--- a/platform/cfg80211/src/lib/bsal/src/bsal.c	2021-06-01 23:15:28.895625301 +0530
++++ b/platform/cfg80211/src/lib/bsal/src/bsal.c	2021-06-01 23:36:50.727588415 +0530
+@@ -337,8 +337,12 @@
+ 
+     ht_nss_max = get_ht_nss_max(sta.ht_mcs_set);
+     ht_mcs_max = get_ht_mcs_max(sta.ht_mcs_set);
+-    vht_nss_max = get_vht_numstreams(sta.vht_rx_mcs_map);
+-    vht_mcs_max = get_vht_mcs_max(sta.vht_rx_mcs_map);
++
++    if(sta.vht_caps_info > 0) {
++        vht_nss_max = get_vht_numstreams(sta.vht_rx_mcs_map);
++        vht_mcs_max = get_vht_mcs_max(sta.vht_rx_mcs_map);
++    }
++
+     //he_nss_max = get_he_nss_max(he_mcs);
+     //he_mcs_max = get_he_mcs_max(he_mcs);
+ 

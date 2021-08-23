@@ -1,0 +1,31 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-12 06:07:40.788013615 +0530
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-12 06:09:55.136009749 +0530
+@@ -85,6 +85,9 @@
+ #define HOME_AP_24      "home-ap-24"
+ #define BHAUL_AP_24     "bhaul-ap-24"
+ 
++#define WIFI_PREFIX     "wifi"
++#define WIFI_2G         "wifi2g"
++
+ #define UTIL_CB_PHY         "phy"
+ #define UTIL_CB_VIF         "vif"
+ #define UTIL_CB_KV_KEY      "delayed_update_ifname_list"
+@@ -3200,7 +3203,7 @@
+         vstate->ap_bridge = !!v;
+ #else
+     // TODO: Identify API to set/get min_hw_mode
+-    if (strstr(vstate->if_name, HOME_AP_24)) {
++    if (strstr(vstate->if_name, HOME_AP_24) || strstr(vstate->if_name, WIFI_2G)) {
+         vstate->min_hw_mode_exists = true;
+         STRSCPY(vstate->min_hw_mode, "11b");
+     }
+@@ -3209,7 +3212,7 @@
+         STRSCPY(vstate->min_hw_mode, "11g");
+     }
+     // TODO: Identify API to set/get ap_bridge
+-    if (strstr(vstate->if_name, HOME_AP_PREFIX)) {
++    if (strstr(vstate->if_name, HOME_AP_PREFIX) || strstr(vstate->if_name, WIFI_PREFIX)) {
+         vstate->ap_bridge_exists = true;
+         vstate->ap_bridge = 0;
+     }

@@ -1,0 +1,70 @@
+diff --git a/include/version.mk b/include/version.mk
+index be3fcae3ec..b1468d2b3e 100644
+--- a/include/version.mk
++++ b/include/version.mk
+@@ -58,6 +58,17 @@ VERSION_HWREV:=$(if $(VERSION_HWREV),$(VERSION_HWREV),v0)
+ 
+ VERSION_TIP:=$(shell $(TOPDIR)/scripts/getver.sh wlan-ap)
+ 
++# PLUMEOS start
++BUILD_TIME=$(shell date)
++BUILD_TIME_EPOCH=$(shell date +"%s")
++BUILD_HOST=$(shell uname -a)
++BUILD_USER=$(shell whoami)
++BUILD_DESC=$(shell git --git-dir $(TOPDIR)/.git describe --long --tags)
++BUILD_BRANCH=$(shell git --git-dir $(TOPDIR)/.git rev-parse --abbrev-ref HEAD)
++BUILD_HASH=$(shell git --git-dir $(TOPDIR)/.git log --pretty=format:'%h' -n 1)
++BUILD_HASH_FULL=$(shell git --git-dir $(TOPDIR)/.git log --pretty=format:'%H' -n 1)
++# PLUMEOS end
++
+ define taint2sym
+ $(CONFIG_$(firstword $(subst :, ,$(subst +,,$(subst -,,$(1))))))
+ endef
+@@ -99,6 +110,14 @@ VERSION_SED_SCRIPT:=$(SED) 's,%U,$(call sed_escape,$(VERSION_REPO)),g' \
+ 	-e 's,%T,$(call sed_escape,$(BOARD)),g' \
+ 	-e 's,%S,$(call sed_escape,$(BOARD)/$(if $(SUBTARGET),$(SUBTARGET),generic)),g' \
+ 	-e 's,%A,$(call sed_escape,$(ARCH_PACKAGES)),g' \
++	-e 's,%B,$(call sed_escape,$(BUILD_TIME)),g' \
++	-e 's,%E,$(call sed_escape,$(BUILD_TIME_EPOCH)),g' \
++	-e 's,%s,$(call sed_escape,$(BUILD_HOST)),g' \
++	-e 's,%u,$(call sed_escape,$(BUILD_USER)),g' \
++	-e 's,%r,$(call sed_escape,$(BUILD_DESC)),g' \
++	-e 's,%b,$(call sed_escape,$(BUILD_BRANCH)),g' \
++	-e 's,%h,$(call sed_escape,$(BUILD_HASH)),g' \
++	-e 's,%H,$(call sed_escape,$(BUILD_HASH_FULL)),g' \
+ 	-e 's,%t,$(call sed_escape,$(VERSION_TAINTS)),g' \
+ 	-e 's,%M,$(call sed_escape,$(VERSION_MANUFACTURER)),g' \
+ 	-e 's,%m,$(call sed_escape,$(VERSION_MANUFACTURER_URL)),g' \
+diff --git a/package/base-files/files/etc/openwrt_release b/package/base-files/files/etc/openwrt_release
+index 11eb7f0361..16228f0a3d 100644
+--- a/package/base-files/files/etc/openwrt_release
++++ b/package/base-files/files/etc/openwrt_release
+@@ -6,3 +6,11 @@ DISTRIB_ARCH='%A'
+ DISTRIB_DESCRIPTION='%D %V %C'
+ DISTRIB_TAINTS='%t'
+ DISTRIB_TIP='%a'
++BUILD_TIME="%B"
++BUILD_TIME_EPOCH="%E"
++BUILD_HOST="%s"
++BUILD_USER="%u"
++BUILD_DESC="%r"
++BUILD_BRANCH="%b"
++BUILD_HASH="%h"
++BUILD_HASH_FULL="%H"
+diff --git a/package/base-files/files/etc/passwd b/package/base-files/files/etc/passwd
+index 1d06a80361..c3a083d7c9 100644
+--- a/package/base-files/files/etc/passwd
++++ b/package/base-files/files/etc/passwd
+@@ -1,4 +1,4 @@
+-root:x:0:0:root:/root:/bin/ash
++root:x:0:0:root:/root:/bin/bash
+ daemon:*:1:1:daemon:/var:/bin/false
+ ftp:*:55:55:ftp:/home/ftp:/bin/false
+ network:*:101:101:network:/var:/bin/false
+diff --git a/package/base-files/files/etc/shells b/package/base-files/files/etc/shells
+index 006aa38ced..01dca2d74b 100644
+--- a/package/base-files/files/etc/shells
++++ b/package/base-files/files/etc/shells
+@@ -1 +1 @@
+-/bin/ash
++/bin/bash

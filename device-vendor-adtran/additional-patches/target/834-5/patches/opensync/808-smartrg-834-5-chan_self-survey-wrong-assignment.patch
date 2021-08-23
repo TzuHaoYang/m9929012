@@ -1,0 +1,18 @@
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_survey.c b/platform/cfg80211/src/lib/nl80211/src/nl80211_survey.c
+index f727e66..f6ded10 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_survey.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_survey.c
+@@ -61,8 +61,8 @@ static int nl80211_survey_recv(struct nl_msg *msg, void *arg)
+         survey_record->info.chan = util_freq_to_chan(
+                                         nla_get_u32(si[NL80211_SURVEY_INFO_FREQUENCY]));
+
+-    if (si[NL80211_SURVEY_INFO_TIME_RX])
+-        survey_record->chan_self = nla_get_u64(si[NL80211_SURVEY_INFO_TIME_RX]);
++    if (si[NL80211_SURVEY_INFO_TIME_BSS_RX])
++        survey_record->chan_self = nla_get_u64(si[NL80211_SURVEY_INFO_TIME_BSS_RX]);
+
+     if (si[NL80211_SURVEY_INFO_TIME_TX])
+         survey_record->chan_tx = nla_get_u64(si[NL80211_SURVEY_INFO_TIME_TX]);
+--
+2.25.1
+

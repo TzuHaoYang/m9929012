@@ -1,0 +1,38 @@
+Index: linux-4.14.216/drivers/mtd/nand/brcmnand/brcmnand.c
+===================================================================
+--- linux-4.14.216.orig/drivers/mtd/nand/brcmnand/brcmnand.c
++++ linux-4.14.216/drivers/mtd/nand/brcmnand/brcmnand.c
+@@ -699,6 +699,18 @@ static inline u32 brcmnand_ecc_level_mas
+ 	return mask;
+ }
+ 
++static u32 brcmnand_get_ecc_level(struct brcmnand_host *host)
++{
++        struct brcmnand_controller *ctrl = host->ctrl;
++        u16 offs = brcmnand_cs_offset(ctrl, host->cs, BRCMNAND_CS_ACC_CONTROL);
++        u32 acc_control = nand_readreg(ctrl, offs);
++
++        acc_control &= brcmnand_ecc_level_mask( ctrl );
++        acc_control >>= NAND_ACC_CONTROL_ECC_SHIFT;
++
++        return acc_control;
++}
++
+ static void brcmnand_set_ecc_enabled(struct brcmnand_host *host, int en)
+ {
+ 	struct brcmnand_controller *ctrl = host->ctrl;
+@@ -2144,6 +2156,14 @@ static int brcmnand_setup_dev(struct brc
+ 		return -EINVAL;
+ 	}
+ 
++	if ( chip->ecc.strength == 0 )
++	{
++		/* Strength is 0 or not set in DTS */
++		cfg->ecc_level = brcmnand_get_ecc_level( host ); 
++		chip->ecc.strength = cfg->ecc_level;
++		dev_info( ctrl->dev, "Setting HW ECC level to %d bits since not specified with nand-ecc-strength in device-tree\n", cfg->ecc_level );
++	}
++
+ 	switch (chip->ecc.size) {
+ 	case 512:
+ 		if (chip->ecc.algo == NAND_ECC_HAMMING)

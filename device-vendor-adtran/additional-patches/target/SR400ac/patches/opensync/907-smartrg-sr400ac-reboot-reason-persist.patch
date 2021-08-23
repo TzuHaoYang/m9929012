@@ -1,0 +1,35 @@
+diff --git a/src/dm/src/dm_reboot.c b/src/dm/src/dm_reboot.c
+index e8fb17e..2b34925 100644
+--- a/src/dm/src/dm_reboot.c
++++ b/src/dm/src/dm_reboot.c
+@@ -42,7 +42,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ #include "json_util.h"
+ #include "ovsdb_table.h"
+ 
+-#define DM_REBOOT_GUARD_FILE "/var/run/dm_reboot_guard"
++#define DM_REBOOT_GUARD_FILE "/FLASH/persist/dm_reboot_guard"
+ 
+ /*
+  * Generate the PJS structures
+@@ -53,7 +53,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ #include "dm_reboot_pjs.h"
+ #include "pjs_gen_c.h"
+ 
+-#define DM_REBOOT_STORE "reboot"
++#define DM_REBOOT_STORE "/FLASH/persist/reboot"
+ #define DM_REBOOT_KEY   "reboot"
+ 
+ MODULE(dm_reboot, dm_reboot_init, dm_reboot_fini)
+diff --git a/src/lib/osp/src/osp_reboot_pstore.c b/src/lib/osp/src/osp_reboot_pstore.c
+index ef850ec..d52d986 100644
+--- a/src/lib/osp/src/osp_reboot_pstore.c
++++ b/src/lib/osp/src/osp_reboot_pstore.c
+@@ -57,7 +57,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * it somewhere and tmpfs seems perfect for this. To avoid accidentally
+  * tampering with this file, it will be set to immutable.
+  */
+-#define PSTORE_REBOOT_TMP   "/var/run/osp_reboot_reason"
++#define PSTORE_REBOOT_TMP   "/FLASH/persist/osp_reboot_reason"
+ 
+ static const char * const pstore_reboot_type_map[] =
+ {

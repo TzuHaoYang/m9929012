@@ -1,0 +1,15 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_nl80211_init.c  b/platform/cfg80211/src/lib/target/target_nl80211_init.c  
+--- a/platform/cfg80211/src/lib/target/target_nl80211_init.c	2021-06-03 17:46:59.135219951 +0530
++++ b/platform/cfg80211/src/lib/target/target_nl80211_init.c	2021-06-06 00:31:21.369549254 +0530
+@@ -39,8 +39,11 @@
+ 
+ struct ev_loop *target_mainloop;
+ 
++extern bool target_init_vendor(target_init_opt_t opt, struct ev_loop *loop);
+ bool target_init(target_init_opt_t opt, struct ev_loop *loop)
+ {
++    if ((opt == TARGET_INIT_MGR_CM) || (opt ==TARGET_INIT_MGR_QM))
++        target_init_vendor(opt, loop);
+     target_mainloop = loop;
+     return true;
+ }

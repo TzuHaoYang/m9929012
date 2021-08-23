@@ -1,0 +1,20 @@
+diff -urN a/src/bm/src/bm_client.c b/src/bm/src/bm_client.c
+--- a/src/bm/src/bm_client.c  2021-06-25 22:43:58.028009448 +0530
++++ b/src/bm/src/bm_client.c 2021-06-25 22:48:31.388001582 +0530
+@@ -2055,7 +2055,15 @@
+             case BM_CLIENT_STATE_STEERING:
+             {
+                 for (i = 0; i < client->ifcfg_num; i++) {
+-                    if (!client->ifcfg[i].bs_allowed)
++                    LOGI("%s: i=%d client->ifcfg[i].ifname=%s bs_allowed=%d event.ifname=%s",
++                        __func__, i, client->ifcfg[i].ifname, client->ifcfg[i].bs_allowed, event.ifname);
++                    /*
++                     * At the moment BAND_STEERING_ATTEMPT is allowed only for
++                     * 2.4 to 5 GHz. Cloud expects BAND_STEERING_ATTEMPT to convey
++                     * information about "from" band (2.4 GHz), therefore we look
++                     * for iface with disable bs_allowed.
++                    */
++                    if (client->ifcfg[i].bs_allowed)
+                         continue;
+
+                     STRSCPY(event.ifname, client->ifcfg[i].ifname);

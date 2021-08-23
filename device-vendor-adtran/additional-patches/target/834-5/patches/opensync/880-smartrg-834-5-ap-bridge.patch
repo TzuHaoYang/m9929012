@@ -1,0 +1,56 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-29 00:56:05.343811857 +0530
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-29 09:56:47.047071166 +0530
+@@ -3143,9 +3143,6 @@
+     if (changed->mcast2ucast)
+         util_set_int_lazy(vif, "g_mcastenhance", "mcastenhance", D(vconf->mcast2ucast, 0) ? 2 : 0);
+ #endif
+-    if (changed->ap_bridge)
+-        util_set_int_lazy(vif, "get_ap_bridge", "ap_bridge", D(vconf->ap_bridge, 0));
+-
+     if (changed->vif_dbg_lvl)
+         util_set_int_lazy(vif, "getdbgLVL", "dbgLVL", D(vconf->vif_dbg_lvl, 0));
+ 
+@@ -3254,8 +3251,6 @@
+     if (!strcmp(vstate->mode, "ap"))
+         if ((vstate->min_hw_mode_exists = (r = util_vif_min_hw_mode_get(vif))))
+             STRSCPY(vstate->min_hw_mode, r);
+-    if ((vstate->ap_bridge_exists = util_get_int(vif, "get_ap_bridge", &v)))
+-        vstate->ap_bridge = !!v;
+ #else
+     // TODO: Identify API to set/get min_hw_mode
+     if (strstr(vstate->if_name, HOME_AP_24) || strstr(vstate->if_name, WIFI_2G)) {
+@@ -3266,11 +3261,6 @@
+         vstate->min_hw_mode_exists = true;
+         STRSCPY(vstate->min_hw_mode, "11g");
+     }
+-    // TODO: Identify API to set/get ap_bridge
+-    if (strstr(vstate->if_name, HOME_AP_PREFIX) || strstr(vstate->if_name, WIFI_PREFIX)) {
+-        vstate->ap_bridge_exists = true;
+-        vstate->ap_bridge = 0;
+-    }
+ #endif
+ 
+     if (hapd) hapd_bss_get(hapd, vstate);
+diff -urN a/src/lib/hostap/src/hapd.c b/src/lib/hostap/src/hapd.c
+--- a/src/lib/hostap/src/hapd.c	2021-05-29 00:56:05.343811857 +0530
++++ b/src/lib/hostap/src/hapd.c	2021-05-29 09:57:56.235069587 +0530
+@@ -627,6 +627,9 @@
+     if (vconf->rrm_exists)
+         csnprintf(&buf, &len, "rrm_neighbor_report=%d\n", !!vconf->rrm);
+ 
++    if (vconf->ap_bridge_exists)
++        csnprintf(&buf, &len, "ap_isolate=%d\n", !vconf->ap_bridge);
++
+     if (strlen(vconf->bridge) > 0)
+         csnprintf(&buf, &len, "bridge=%s\n", vconf->bridge);
+ 
+@@ -847,6 +850,8 @@
+         SCHEMA_SET_STR(vstate->ssid_broadcast, atoi(p) ? "disabled" : "enabled");
+     if ((vstate->uapsd_enable_exists = (p = ini_geta(conf, "uapsd_advertisement_enabled"))))
+         vstate->uapsd_enable = atoi(p);
++    if ((vstate->ap_bridge_exists = (p = ini_geta(conf, "ap_isolate"))))
++        vstate->ap_bridge = !atoi(p);
+ 
+     if (status) {
+         hapd_bss_get_security(vstate, conf, status);

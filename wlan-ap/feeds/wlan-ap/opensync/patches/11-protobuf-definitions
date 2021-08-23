@@ -1,0 +1,153 @@
+Index: opensync-2.0.5.0/interfaces/opensync.ovsschema
+===================================================================
+--- opensync-2.0.5.0.orig/interfaces/opensync.ovsschema
++++ opensync-2.0.5.0/interfaces/opensync.ovsschema
+@@ -4566,7 +4566,8 @@
+                   "quality",
+                   "device",
+                   "rssi",
+-                  "steering"
++                  "steering",
++                  "network_probe"
+                 ]
+               ]
+             }
+Index: opensync-2.0.5.0/interfaces/opensync_stats.proto
+===================================================================
+--- opensync-2.0.5.0.orig/interfaces/opensync_stats.proto
++++ opensync-2.0.5.0/interfaces/opensync_stats.proto
+@@ -91,11 +91,27 @@ enum BSEventType {
+     CLIENT_GHOST_DEVICE_KICK                = 26;
+ }
+ 
++enum ConnectionEventType {
++    CLIENT_ASSOC                            = 0;
++    CLIENT_AUTH                             = 1;
++    CLIENT_DISCONNECT                       = 2;
++    CLIENT_FAILURE                          = 3;
++    CLIENT_FIRST_DATA                       = 4;
++    CLIEND_ID                               = 5;
++    CLIENT_IP                               = 6;
++    CLIENT_TIMEOUT                          = 7;
++}
++
+ enum DisconnectSrc {
+     LOCAL                                   = 0;
+     REMOTE                                  = 1;
+ }
+ 
++enum AssocType {
++    ASSOC                                = 0;
++    REASSOC                              = 1;
++}
++
+ enum DisconnectType {
+     DISASSOC                                = 0;
+     DEAUTH                                  = 1;
+@@ -219,7 +235,23 @@ message Client {
+         repeated Sojourn    sojourn         = 4;
+         optional uint32     offset_ms       = 5;
+    }
+-
++   // type of ConnectionEvent is determined by ConnectionEventType enum
++   // all other fields are optional
++   // there will be more fields in the future, this is only for STA_Client_Assoc event
++   message ConnectionEvent {
++        required ConnectionEventType type   = 1;
++        optional string sta_mac             = 2;
++        optional uint64 session_id          = 3;
++        optional string ssid                = 4;
++        optional RadioBandType band         = 5;
++        optional AssocType assoc_type       = 6;
++        optional uint32 status              = 7;
++        optional int32 rssi                 = 8;
++        optional uint32 internal_sc         = 9;
++        optional bool using11k              = 10;
++        optional bool using11r              = 11;
++        optional bool using11v              = 12;
++   }
+     required string     mac_address         = 1;
+     optional string     ssid                = 2;
+     optional bool       connected           = 3;
+@@ -233,6 +265,7 @@ message Client {
+     repeated TxStats    tx_stats            = 11;
+     repeated TidStats   tid_stats           = 12;
+     optional uint32     uapsd               = 13;
++    repeated ConnectionEvent event_list     = 14;
+ }
+ 
+ message ClientReport {
+@@ -476,6 +509,66 @@ message RssiReport {
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ //
++// Network probe parameters
++//
++////////////////////////////////////////////////////////////////////////////////
++enum StateUpDown {
++    SUD_down = 0;
++    SUD_up = 1;
++    SUD_error = 2;
++}
++
++message DNSProbeMetric {
++    optional string serverIP                       = 1;
++    optional StateUpDown state = 2;    // State of the server
++    optional uint32 latency                       = 3;    // Response latency in ms
++}
++
++message VLANMetrics {
++    optional string vlanIF                              = 1;    // The name of the interface (ie: brtrunk.100)
++    optional StateUpDown dhcpState   = 2;    // The state of the DHCP server according to that vlan
++    optional uint32 dhcpLatency                         = 3;
++    optional StateUpDown dnsState    = 4;    // The state of the DNS server according to that vlan
++    optional uint32 dnsLatency                          = 5;
++    optional StateUpDown obsV200_radiusState = 6;    // The state of the Radius server according to that vlan
++    optional uint32 obsV200_radiusLatency                       = 7;
++    repeated DNSProbeMetric dnsProbeResults         = 8;    // ver=1300
++
++    // -- duration
++    optional uint32 dur_vlanIF           = 501;     //category Network
++    optional uint32 dur_dhcpState        = 502;     //category Network
++    optional uint32 dur_dhcpLatency      = 503;     //category Network
++    optional uint32 dur_dnsState         = 504;     //category Network
++    optional uint32 dur_dnsLatency       = 505;     //category Network
++                                                    // optional uint32 obsV200_dur_radiusState      = 506;
++                                                    // optional uint32 obsV200_dur_radiusLatency    = 507;
++    optional uint32 dur_dnsReport        = 508;
++}
++
++message RADIUSMetrics {
++    optional bytes serverIP    = 1;
++    optional uint32 noAnswer   = 2;
++    optional uint32 latencyMin = 3;
++    optional uint32 latencyMax = 4;
++    optional uint32 latencyAve = 5;
++
++    // -- duration
++    optional uint32 dur_serverIP   = 501;   //category Network
++    optional uint32 dur_noAnswer   = 502;   //category Network
++    optional uint32 dur_latencyMin = 503;   //category Network
++    optional uint32 dur_latencyMax = 504;   //category Network
++    optional uint32 dur_latencyAve = 505;   //category Network
++}
++
++
++message NetworkProbe {
++    optional DNSProbeMetric dns_probe    = 1;
++    optional VLANMetrics    vlan_probe   = 2;
++    optional RADIUSMetrics  radius_probe = 3;
++    optional uint64         timestamp_ms = 4;
++}
++////////////////////////////////////////////////////////////////////////////////
++//
+ // Overall report that might contain all individual stats reports
+ //
+ ////////////////////////////////////////////////////////////////////////////////
+@@ -488,5 +581,5 @@ message Report {
+     repeated Device         device          = 6;
+     repeated BSReport       bs_report       = 7;
+     repeated RssiReport     rssi_report     = 8;
++    repeated NetworkProbe   network_probe   = 101;
+ }
+-

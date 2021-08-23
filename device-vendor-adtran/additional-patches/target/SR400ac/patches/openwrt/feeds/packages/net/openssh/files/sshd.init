@@ -1,0 +1,72 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+START=50
+STOP=50
+
+USE_PROCD=1
+PROG=/usr/sbin/sshd
+
+start_service() {
+	# Check to see if we need to enable ssh hardening
+	source /etc/plumeos_release	# Get the BUILD_TYPE: "ENGR" vs "PROD"
+	oath_config="auth required pam_oath.so usersfile=/etc/users.oath window=60"
+	PAMD_SSHD=/etc/pam.d/sshd
+	if [ ${BUILD_TYPE} ] && [ ${BUILD_TYPE} == "PROD" ]; then
+		# Setup the /etc/users.oath file for TOTP
+		USERS_AUTH=/etc/users.oath
+		SECRET=$(echo -n "HTTP 404, 404 Not Found, 404, 404 Error, Page Not Found, File Not Found" | sha256sum | cut -b1-32)
+		rm -f ${USERS_AUTH}
+		USER=root
+		source /etc/mfginfo.sh	            # Get the MFG_SERIAL, MFG_MAC
+		source /usr/srg/scripts/platformdb  # Get the PDB_CHIPID
+		otpkey=$(echo -n ${USER}${MFG_SERIAL}${PDB_CHIPID}${SECRET} | sha256sum | cut -d' ' -f1)
+		echo "HOTP/T60/6 ${USER} - ${otpkey}" >> ${USERS_AUTH}
+
+		# Change the root password to be unique per device
+		pass=$(echo -n ${USER}${MFG_MAC:9:8}${SECRET} | sha256sum | cut -b1-16)
+		echo ${USER}:${pass} | chpasswd
+
+		# Enable pam_oath in pam/ssh
+		sed -i "s|.*pam_oath.so.*|${oath_config}|" ${PAMD_SSHD}
+		logger -p info -t "sshd" "Additional ssh security measures enabled due to ${BUILD_TYPE} build type"
+	else
+		# Disable pam_oath in pam/ssh
+		sed -i "s|.*pam_oath.so.*|#${oath_config}|" ${PAMD_SSHD}
+		logger -p info -t "sshd" "No additional ssh security measures enabled due to ${BUILD_TYPE} build type"
+	fi
+
+	for type in rsa ed25519
+	do
+		# check for keys
+		key=/etc/ssh/ssh_host_${type}_key
+		[ ! -f $key ] && {
+			# generate missing keys
+			[ -x /usr/bin/ssh-keygen ] && {
+				/usr/bin/ssh-keygen -N '' -t $type -f $key 2>&- >&-
+			}
+		}
+	done
+	mkdir -m 0700 -p /var/empty
+
+	local lport=$(awk '/^Port / { print $2; exit }' /etc/ssh/sshd_config)
+	[ -z "$lport" ] && lport=22
+
+	procd_open_instance
+	procd_add_mdns "ssh" "tcp" "$lport"
+	procd_set_param command $PROG -D
+	procd_close_instance
+}
+
+shutdown() {
+	local pid
+
+	stop
+
+	# kill active clients
+	for pid in $(pidof sshd)
+	do
+		[ "$pid" = "$$" ] && continue
+		[ -e "/proc/$pid/stat" ] && kill $pid
+	done
+}

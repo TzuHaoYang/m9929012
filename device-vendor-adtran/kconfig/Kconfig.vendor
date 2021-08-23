@@ -1,0 +1,106 @@
+menuconfig VENDOR_IS_ADTRAN
+    bool "Adtran"
+    help
+        Vendor Adtran.
+
+if VENDOR_IS_ADTRAN
+
+    config ADTRAN_SYNC_SSID_AND_PSK
+        bool "sync SSID and PSK CMS <-> OpenSync"
+        depends on BCM_USE_CMS
+        default y
+        help
+            If enabled SSID and PSK will be synced at startup and if changed
+            via OVSDB (OpenSync) the changes will be pushed to CSM.
+
+    config ADTRAN_SYNC_SSID_AND_PSK_REMAP_HOME_IDX
+        int "sync SSID and PSK CMS <-> OVSDB remap home APs"
+        depends on ADTRAN_SYNC_SSID_AND_PSK
+        default -1
+        help
+            In some cases the supplied device configuration file where interface
+            functions are specified does not correspond to the default/native
+            device configuration.
+
+            Example: OpenSync cloud model has home AP configured as wl0.2 but default device
+            configuration has home AP configured as wl0.
+
+            If this parameter is set to other than -1, then sync algorithm will use as
+            source config the vap composed as wl0.<this_parameter>.
+
+    config ADTRAN_SYNC_HOME_BR_CONFIG
+        bool "sync br0 (br-home) ip and dhcp CMS <-> OpenSync"
+        default n
+        help
+            If enabled ip and dhcp server config will be synced fro MDM.
+
+    config 3RDPARTY_WALLEYE
+        bool "walleye"
+        default n
+        help
+            Enables walleye 3rd party service
+
+    config WEBROOT
+        bool "weebroot"
+        default n
+        help
+            Enables webroot 3rd party service
+
+    config SPEEDTEST
+        bool "Speedtest"
+        default n
+        help
+            Enables speedtest 3rd party service
+
+    if SPEEDTEST
+        choice SELECT_SPEEDTEST
+            prompt "Choose speedtest implementation"
+            default SPEEDTEST_PLUME
+
+            config SPEEDTEST_PLUME
+                bool "Plume"
+                help
+                    This options enables the "st_ookla" command. This is
+                    the Plume implementation of the Ookla speedtest.
+
+            config SPEEDTEST_OOKLA
+                bool "Ookla Official"
+                help
+                    Use the official OOKLA speedtest binary.
+        endchoice
+
+        if SPEEDTEST_OOKLA
+            config SPEEDTEST_NICE
+                string "Optional command to set process priority of speedtest"
+                default "$(INSTALL_PREFIX)/bin/runprio.sh" if PLATFORM_IS_BCM
+
+            config SPEEDTEST_URL
+                string "Speedtest URL"
+                default "http://www.speedtest.net/api/embed/plume/config"
+
+            config SPEEDTEST_PARAM
+                string "Additional parameters in speedtest URL"
+                default "?threadnum=4" if PLATFORM_IS_BCM
+
+            choice SELECT_OOKLA_WAR
+                prompt "Choose ookla performance work-around"
+                default OOKLA_WAR_TCP_IGNORE_CSUM
+
+                config OOKLA_WAR_TCP_IGNORE_CSUM
+                    bool "ookla perf war: sysctl ipv4/tcp_ignore_csum"
+                    help
+                        Use sysctl ipv4/tcp_ignore_csum for ookla performance improvement
+
+                config OOKLA_WAR_GRO
+                    bool "ookla perf war: ethtool gro"
+                    help
+                        Use ethtool gro for ookla performance improvement
+
+                config OOKLA_WAR_MODULE
+                    bool "ookla perf war: kernel module"
+                    help
+                        Use kernel module for ookla performance improvement
+            endchoice
+        endif
+    endif
+endif

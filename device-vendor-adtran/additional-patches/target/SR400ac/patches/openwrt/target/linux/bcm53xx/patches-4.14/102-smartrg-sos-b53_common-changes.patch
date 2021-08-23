@@ -1,0 +1,1220 @@
+From 3eefd2738228aa45e54abf441ec12544dce7fab1 Mon Sep 17 00:00:00 2001
+From: Tim Hayes <tim.hayes@smartrg.com>
+Date: Wed, 17 Jun 2020 07:51:28 -0700
+Subject: [PATCH] OWRT-5418 modified version with standard and non-standard
+ changes
+
+---
+ drivers/net/dsa/b53/b53_common.c | 933 +++++++++++++++++++++++++++++++--------
+ 1 file changed, 750 insertions(+), 183 deletions(-)
+
+diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
+index 434e6dc..ee3504e 100644
+--- a/drivers/net/dsa/b53/b53_common.c
++++ b/drivers/net/dsa/b53/b53_common.c
+@@ -28,199 +28,270 @@
+ #include <linux/phy.h>
+ #include <linux/etherdevice.h>
+ #include <linux/if_bridge.h>
++#include <linux/debugfs.h>
+ #include <net/dsa.h>
+ 
+ #include "b53_regs.h"
+ #include "b53_priv.h"
+ 
++//
++// Some things we need to do to support SmartOS (SOS) with bcm DSA
++// tim.hayes@smartrg.com
++//
++
++//
++// This prevents chaninging the pvid of the CPU port to something besides 1
++// This happens when you insert a lan port into br-xconnect
++//
++#define B53_SOS_BRIDGE_PVID_CPU_HACK 1
++//
++// nobody cares about the WAN port when it is not in a bridge
++// a vlan is needed that maps to CPU port 
++//
++#define B53_SOS_WAN_PVID_CPU_HACK 1
++//
++// could not find another way to add bridge macs to IMP port
++// since we don't have any static mac based features set fdb_adds to IMP port
++// todo continue to investigate and evolve DSA to support this feature
++// without this we get unknown uc traffic and loops shutdown connectivity
++//
++#define B53_SOS_BRIDGE_STATIC_ADDR_HACK 1
++//
++// use cached value so it can be undone in STP BLOCK state
++//
++#define B53_SOS_BRIDGE_PORTMAP_CACHE 1
++//
++// reserved service vlan special
++//
++#define B53_SOS_RESERVED_VLANS 1
++
++int b53_vlans[4096]={0};
++
++struct b53_work {
++	struct work_struct work;
++	struct b53_device *dev;
++};
++
++struct b53_work b53_stats_work;
++struct timer_list stats_timer;	/* one second b53_stats_work timer */
++
++/* hw specific mib to linux ethernet counter mappings */
++#define MNOM 0	// no mapping		
++#define MRXP 1	// rx_packets		
++#define MTXP 2	// tx_packets		
++#define MRXB 3	// rx_bytes			
++#define MTXB 4	// tx_bytes			
++#define MRXE 5	// rx_errors		
++#define MTXE 6	// tx_errors		
++#define MRXD 7	// rx_dropped		
++#define MTXD 8	// tx_dropped		
++#define MTXM 9	// multicast		
++#define MRXM 10	// multicast		
++#define MCOL 11	// collisions		
++#define MRLE 12 	// rx_length_errors	
++#define MROE 13 	// rx_over_errors		
++#define MCRC 14	// rx_crc_errors		
++#define MRFE 15	// rx_frame_errors		
++#define MRIE 16	// rx_fifo_errors		
++#define MRME 17	// rx_missed_errors	
++#define MTAE 18	// tx_aborted_errors	
++#define MTCE 19 	// tx_carrier_errors	
++#define MTFE 20	// tx_fifo_errors		
++#define MTHE 21	// tx_heartbeat_errors	
++#define MTWE 22	// tx_window_errors	
++#define MRCM 23	// rx_compressed
++#define MTCM 24	// tx_compressed
++	      
++
+ struct b53_mib_desc {
+ 	u8 size;
+ 	u8 offset;
++	u8 map;
+ 	const char *name;
+ };
+ 
+ /* BCM5365 MIB counters */
+ static const struct b53_mib_desc b53_mibs_65[] = {
+-	{ 8, 0x00, "TxOctets" },
+-	{ 4, 0x08, "TxDropPkts" },
+-	{ 4, 0x10, "TxBroadcastPkts" },
+-	{ 4, 0x14, "TxMulticastPkts" },
+-	{ 4, 0x18, "TxUnicastPkts" },
+-	{ 4, 0x1c, "TxCollisions" },
+-	{ 4, 0x20, "TxSingleCollision" },
+-	{ 4, 0x24, "TxMultipleCollision" },
+-	{ 4, 0x28, "TxDeferredTransmit" },
+-	{ 4, 0x2c, "TxLateCollision" },
+-	{ 4, 0x30, "TxExcessiveCollision" },
+-	{ 4, 0x38, "TxPausePkts" },
+-	{ 8, 0x44, "RxOctets" },
+-	{ 4, 0x4c, "RxUndersizePkts" },
+-	{ 4, 0x50, "RxPausePkts" },
+-	{ 4, 0x54, "Pkts64Octets" },
+-	{ 4, 0x58, "Pkts65to127Octets" },
+-	{ 4, 0x5c, "Pkts128to255Octets" },
+-	{ 4, 0x60, "Pkts256to511Octets" },
+-	{ 4, 0x64, "Pkts512to1023Octets" },
+-	{ 4, 0x68, "Pkts1024to1522Octets" },
+-	{ 4, 0x6c, "RxOversizePkts" },
+-	{ 4, 0x70, "RxJabbers" },
+-	{ 4, 0x74, "RxAlignmentErrors" },
+-	{ 4, 0x78, "RxFCSErrors" },
+-	{ 8, 0x7c, "RxGoodOctets" },
+-	{ 4, 0x84, "RxDropPkts" },
+-	{ 4, 0x88, "RxUnicastPkts" },
+-	{ 4, 0x8c, "RxMulticastPkts" },
+-	{ 4, 0x90, "RxBroadcastPkts" },
+-	{ 4, 0x94, "RxSAChanges" },
+-	{ 4, 0x98, "RxFragments" },
++	{ 8, 0x00,MTXB,  "TxOctets" },
++	{ 4, 0x08,MTXD,  "TxDropPkts" },
++	{ 4, 0x10,MTXP,  "TxBroadcastPkts" },
++	{ 4, 0x14,MTXM,  "TxMulticastPkts" },
++	{ 4, 0x18,MTXM,  "TxUnicastPkts" },
++	{ 4, 0x1c,MCOL,  "TxCollisions" },
++	{ 4, 0x20,MNOM,  "TxSingleCollision" },
++	{ 4, 0x24,MNOM,  "TxMultipleCollision" },
++	{ 4, 0x28,MNOM,  "TxDeferredTransmit" },
++	{ 4, 0x2c,MNOM,  "TxLateCollision" },
++	{ 4, 0x30,MNOM,  "TxExcessiveCollision" },
++	{ 4, 0x38,MNOM,  "TxPausePkts" },
++	{ 8, 0x44,MRXB,  "RxOctets" },
++	{ 4, 0x4c,MRXE,  "RxUndersizePkts" },
++	{ 4, 0x50,MNOM,  "RxPausePkts" },
++	{ 4, 0x54,MNOM,  "Pkts64Octets" },
++	{ 4, 0x58,MNOM,  "Pkts65to127Octets" },
++	{ 4, 0x5c,MNOM,  "Pkts128to255Octets" },
++	{ 4, 0x60,MNOM,  "Pkts256to511Octets" },
++	{ 4, 0x64,MNOM,  "Pkts512to1023Octets" },
++	{ 4, 0x68,MNOM,  "Pkts1024to1522Octets" },
++	{ 4, 0x6c,MRLE,  "RxOversizePkts" },
++	{ 4, 0x70,MRXE,  "RxJabbers" },
++	{ 4, 0x74,MRXE,  "RxAlignmentErrors" },
++	{ 4, 0x78,MCRC,  "RxFCSErrors" },
++	{ 8, 0x7c,MNOM,  "RxGoodOctets" },
++	{ 4, 0x84,MRXE,  "RxDropPkts" },
++	{ 4, 0x88,MRXP,  "RxUnicastPkts" },
++	{ 4, 0x8c,MRXM,  "RxMulticastPkts" },
++	{ 4, 0x90,MRXP,  "RxBroadcastPkts" },
++	{ 4, 0x94,MNOM,  "RxSAChanges" },
++	{ 4, 0x98,MRXE,  "RxFragments" },
+ };
+ 
+ #define B53_MIBS_65_SIZE	ARRAY_SIZE(b53_mibs_65)
+ 
+ /* BCM63xx MIB counters */
+ static const struct b53_mib_desc b53_mibs_63xx[] = {
+-	{ 8, 0x00, "TxOctets" },
+-	{ 4, 0x08, "TxDropPkts" },
+-	{ 4, 0x0c, "TxQoSPkts" },
+-	{ 4, 0x10, "TxBroadcastPkts" },
+-	{ 4, 0x14, "TxMulticastPkts" },
+-	{ 4, 0x18, "TxUnicastPkts" },
+-	{ 4, 0x1c, "TxCollisions" },
+-	{ 4, 0x20, "TxSingleCollision" },
+-	{ 4, 0x24, "TxMultipleCollision" },
+-	{ 4, 0x28, "TxDeferredTransmit" },
+-	{ 4, 0x2c, "TxLateCollision" },
+-	{ 4, 0x30, "TxExcessiveCollision" },
+-	{ 4, 0x38, "TxPausePkts" },
+-	{ 8, 0x3c, "TxQoSOctets" },
+-	{ 8, 0x44, "RxOctets" },
+-	{ 4, 0x4c, "RxUndersizePkts" },
+-	{ 4, 0x50, "RxPausePkts" },
+-	{ 4, 0x54, "Pkts64Octets" },
+-	{ 4, 0x58, "Pkts65to127Octets" },
+-	{ 4, 0x5c, "Pkts128to255Octets" },
+-	{ 4, 0x60, "Pkts256to511Octets" },
+-	{ 4, 0x64, "Pkts512to1023Octets" },
+-	{ 4, 0x68, "Pkts1024to1522Octets" },
+-	{ 4, 0x6c, "RxOversizePkts" },
+-	{ 4, 0x70, "RxJabbers" },
+-	{ 4, 0x74, "RxAlignmentErrors" },
+-	{ 4, 0x78, "RxFCSErrors" },
+-	{ 8, 0x7c, "RxGoodOctets" },
+-	{ 4, 0x84, "RxDropPkts" },
+-	{ 4, 0x88, "RxUnicastPkts" },
+-	{ 4, 0x8c, "RxMulticastPkts" },
+-	{ 4, 0x90, "RxBroadcastPkts" },
+-	{ 4, 0x94, "RxSAChanges" },
+-	{ 4, 0x98, "RxFragments" },
+-	{ 4, 0xa0, "RxSymbolErrors" },
+-	{ 4, 0xa4, "RxQoSPkts" },
+-	{ 8, 0xa8, "RxQoSOctets" },
+-	{ 4, 0xb0, "Pkts1523to2047Octets" },
+-	{ 4, 0xb4, "Pkts2048to4095Octets" },
+-	{ 4, 0xb8, "Pkts4096to8191Octets" },
+-	{ 4, 0xbc, "Pkts8192to9728Octets" },
+-	{ 4, 0xc0, "RxDiscarded" },
++	{ 8, 0x00,MTXB, "TxOctets" },
++	{ 4, 0x08,MTXD, "TxDropPkts" },
++	{ 4, 0x0c,MTXP, "TxQoSPkts" },
++	{ 4, 0x10,MTXB, "TxBroadcastPkts" },
++	{ 4, 0x14,MTXM, "TxMulticastPkts" },
++	{ 4, 0x18,MTXP, "TxUnicastPkts" },
++	{ 4, 0x1c,MCOL, "TxCollisions" },
++	{ 4, 0x20,MNOM, "TxSingleCollision" },
++	{ 4, 0x24,MNOM, "TxMultipleCollision" },
++	{ 4, 0x28,MNOM, "TxDeferredTransmit" },
++	{ 4, 0x2c,MNOM, "TxLateCollision" },
++	{ 4, 0x30,MNOM, "TxExcessiveCollision" },
++	{ 4, 0x38,MNOM, "TxPausePkts" },
++	{ 8, 0x3c,MTXB, "TxQoSOctets" },
++	{ 8, 0x44,MRXB, "RxOctets" },
++	{ 4, 0x4c,MRXE, "RxUndersizePkts" },
++	{ 4, 0x50,MNOM, "RxPausePkts" },
++	{ 4, 0x54,MNOM, "Pkts64Octets" },
++	{ 4, 0x58,MNOM, "Pkts65to127Octets" },
++	{ 4, 0x5c,MNOM, "Pkts128to255Octets" },
++	{ 4, 0x60,MNOM, "Pkts256to511Octets" },
++	{ 4, 0x64,MNOM, "Pkts512to1023Octets" },
++	{ 4, 0x68,MNOM, "Pkts1024to1522Octets" },
++	{ 4, 0x6c,MRLE, "RxOversizePkts" },
++	{ 4, 0x70,MRXE, "RxJabbers" },
++	{ 4, 0x74,MRXE, "RxAlignmentErrors" },
++	{ 4, 0x78,MCRC, "RxFCSErrors" },
++	{ 8, 0x7c,MNOM, "RxGoodOctets" },
++	{ 4, 0x84,MRXD, "RxDropPkts" },
++	{ 4, 0x88,MRXP, "RxUnicastPkts" },
++	{ 4, 0x8c,MRXM, "RxMulticastPkts" },
++	{ 4, 0x90,MRXP, "RxBroadcastPkts" },
++	{ 4, 0x94,MNOM, "RxSAChanges" },
++	{ 4, 0x98,MRXE, "RxFragments" },
++	{ 4, 0xa0,MRXE, "RxSymbolErrors" },
++	{ 4, 0xa4,MRXP, "RxQoSPkts" },
++	{ 8, 0xa8,MRXB, "RxQoSOctets" },
++	{ 4, 0xb0,MNOM, "Pkts1523to2047Octets" },
++	{ 4, 0xb4,MNOM, "Pkts2048to4095Octets" },
++	{ 4, 0xb8,MNOM, "Pkts4096to8191Octets" },
++	{ 4, 0xbc,MNOM, "Pkts8192to9728Octets" },
++	{ 4, 0xc0,MRXD, "RxDiscarded" },
+ };
+ 
+ #define B53_MIBS_63XX_SIZE	ARRAY_SIZE(b53_mibs_63xx)
+ 
+ /* MIB counters */
+ static const struct b53_mib_desc b53_mibs[] = {
+-	{ 8, 0x00, "TxOctets" },
+-	{ 4, 0x08, "TxDropPkts" },
+-	{ 4, 0x10, "TxBroadcastPkts" },
+-	{ 4, 0x14, "TxMulticastPkts" },
+-	{ 4, 0x18, "TxUnicastPkts" },
+-	{ 4, 0x1c, "TxCollisions" },
+-	{ 4, 0x20, "TxSingleCollision" },
+-	{ 4, 0x24, "TxMultipleCollision" },
+-	{ 4, 0x28, "TxDeferredTransmit" },
+-	{ 4, 0x2c, "TxLateCollision" },
+-	{ 4, 0x30, "TxExcessiveCollision" },
+-	{ 4, 0x38, "TxPausePkts" },
+-	{ 8, 0x50, "RxOctets" },
+-	{ 4, 0x58, "RxUndersizePkts" },
+-	{ 4, 0x5c, "RxPausePkts" },
+-	{ 4, 0x60, "Pkts64Octets" },
+-	{ 4, 0x64, "Pkts65to127Octets" },
+-	{ 4, 0x68, "Pkts128to255Octets" },
+-	{ 4, 0x6c, "Pkts256to511Octets" },
+-	{ 4, 0x70, "Pkts512to1023Octets" },
+-	{ 4, 0x74, "Pkts1024to1522Octets" },
+-	{ 4, 0x78, "RxOversizePkts" },
+-	{ 4, 0x7c, "RxJabbers" },
+-	{ 4, 0x80, "RxAlignmentErrors" },
+-	{ 4, 0x84, "RxFCSErrors" },
+-	{ 8, 0x88, "RxGoodOctets" },
+-	{ 4, 0x90, "RxDropPkts" },
+-	{ 4, 0x94, "RxUnicastPkts" },
+-	{ 4, 0x98, "RxMulticastPkts" },
+-	{ 4, 0x9c, "RxBroadcastPkts" },
+-	{ 4, 0xa0, "RxSAChanges" },
+-	{ 4, 0xa4, "RxFragments" },
+-	{ 4, 0xa8, "RxJumboPkts" },
+-	{ 4, 0xac, "RxSymbolErrors" },
+-	{ 4, 0xc0, "RxDiscarded" },
++	{ 8, 0x00,MTXB, "TxOctets" },
++	{ 4, 0x08,MTXD, "TxDropPkts" },
++	{ 4, 0x10,MTXP, "TxBroadcastPkts" },
++	{ 4, 0x14,MTXM, "TxMulticastPkts" },
++	{ 4, 0x18,MTXP, "TxUnicastPkts" },
++	{ 4, 0x1c,MCOL, "TxCollisions" },
++	{ 4, 0x20,MCOL, "TxSingleCollision" },
++	{ 4, 0x24,MCOL, "TxMultipleCollision" },
++	{ 4, 0x28,MCOL, "TxDeferredTransmit" },
++	{ 4, 0x2c,MCOL, "TxLateCollision" },
++	{ 4, 0x30,MCOL, "TxExcessiveCollision" },
++	{ 4, 0x38,MNOM, "TxPausePkts" },
++	{ 8, 0x50,MNOM, "RxOctets" },
++	{ 4, 0x58,MRXE, "RxUndersizePkts" },
++	{ 4, 0x5c,MNOM, "RxPausePkts" },
++	{ 4, 0x60,MNOM, "Pkts64Octets" },
++	{ 4, 0x64,MNOM, "Pkts65to127Octets" },
++	{ 4, 0x68,MNOM, "Pkts128to255Octets" },
++	{ 4, 0x6c,MNOM, "Pkts256to511Octets" },
++	{ 4, 0x70,MNOM, "Pkts512to1023Octets" },
++	{ 4, 0x74,MNOM, "Pkts1024to1522Octets" },
++	{ 4, 0x78,MRLE, "RxOversizePkts" },
++	{ 4, 0x7c,MRXE, "RxJabbers" },
++	{ 4, 0x80,MRXE, "RxAlignmentErrors" },
++	{ 4, 0x84,MCRC, "RxFCSErrors" },
++	{ 8, 0x88,MRXB, "RxGoodOctets" },
++	{ 4, 0x90,MRXE, "RxDropPkts" },
++	{ 4, 0x94,MRXP, "RxUnicastPkts" },
++	{ 4, 0x98,MRXM, "RxMulticastPkts" },
++	{ 4, 0x9c,MRXP, "RxBroadcastPkts" },
++	{ 4, 0xa0,MNOM, "RxSAChanges" },
++	{ 4, 0xa4,MRXE, "RxFragments" },
++	{ 4, 0xa8,MNOM, "RxJumboPkts" },
++	{ 4, 0xac,MNOM, "RxSymbolErrors" },
++	{ 4, 0xc0,MRXD, "RxDiscarded" },
+ };
+ 
+ #define B53_MIBS_SIZE	ARRAY_SIZE(b53_mibs)
+ 
+ static const struct b53_mib_desc b53_mibs_58xx[] = {
+-	{ 8, 0x00, "TxOctets" },
+-	{ 4, 0x08, "TxDropPkts" },
+-	{ 4, 0x0c, "TxQPKTQ0" },
+-	{ 4, 0x10, "TxBroadcastPkts" },
+-	{ 4, 0x14, "TxMulticastPkts" },
+-	{ 4, 0x18, "TxUnicastPKts" },
+-	{ 4, 0x1c, "TxCollisions" },
+-	{ 4, 0x20, "TxSingleCollision" },
+-	{ 4, 0x24, "TxMultipleCollision" },
+-	{ 4, 0x28, "TxDeferredCollision" },
+-	{ 4, 0x2c, "TxLateCollision" },
+-	{ 4, 0x30, "TxExcessiveCollision" },
+-	{ 4, 0x34, "TxFrameInDisc" },
+-	{ 4, 0x38, "TxPausePkts" },
+-	{ 4, 0x3c, "TxQPKTQ1" },
+-	{ 4, 0x40, "TxQPKTQ2" },
+-	{ 4, 0x44, "TxQPKTQ3" },
+-	{ 4, 0x48, "TxQPKTQ4" },
+-	{ 4, 0x4c, "TxQPKTQ5" },
+-	{ 8, 0x50, "RxOctets" },
+-	{ 4, 0x58, "RxUndersizePkts" },
+-	{ 4, 0x5c, "RxPausePkts" },
+-	{ 4, 0x60, "RxPkts64Octets" },
+-	{ 4, 0x64, "RxPkts65to127Octets" },
+-	{ 4, 0x68, "RxPkts128to255Octets" },
+-	{ 4, 0x6c, "RxPkts256to511Octets" },
+-	{ 4, 0x70, "RxPkts512to1023Octets" },
+-	{ 4, 0x74, "RxPkts1024toMaxPktsOctets" },
+-	{ 4, 0x78, "RxOversizePkts" },
+-	{ 4, 0x7c, "RxJabbers" },
+-	{ 4, 0x80, "RxAlignmentErrors" },
+-	{ 4, 0x84, "RxFCSErrors" },
+-	{ 8, 0x88, "RxGoodOctets" },
+-	{ 4, 0x90, "RxDropPkts" },
+-	{ 4, 0x94, "RxUnicastPkts" },
+-	{ 4, 0x98, "RxMulticastPkts" },
+-	{ 4, 0x9c, "RxBroadcastPkts" },
+-	{ 4, 0xa0, "RxSAChanges" },
+-	{ 4, 0xa4, "RxFragments" },
+-	{ 4, 0xa8, "RxJumboPkt" },
+-	{ 4, 0xac, "RxSymblErr" },
+-	{ 4, 0xb0, "InRangeErrCount" },
+-	{ 4, 0xb4, "OutRangeErrCount" },
+-	{ 4, 0xb8, "EEELpiEvent" },
+-	{ 4, 0xbc, "EEELpiDuration" },
+-	{ 4, 0xc0, "RxDiscard" },
+-	{ 4, 0xc8, "TxQPKTQ6" },
+-	{ 4, 0xcc, "TxQPKTQ7" },
+-	{ 4, 0xd0, "TxPkts64Octets" },
+-	{ 4, 0xd4, "TxPkts65to127Octets" },
+-	{ 4, 0xd8, "TxPkts128to255Octets" },
+-	{ 4, 0xdc, "TxPkts256to511Ocets" },
+-	{ 4, 0xe0, "TxPkts512to1023Ocets" },
+-	{ 4, 0xe4, "TxPkts1024toMaxPktOcets" },
++	{ 8, 0x00,MTXB, "TxOctets" },
++	{ 4, 0x08,MTXD, "TxDropPkts" },
++	{ 4, 0x0c,MNOM, "TxQPKTQ0" },
++	{ 4, 0x10,MTXP, "TxBroadcastPkts" },
++	{ 4, 0x14,MTXM, "TxMulticastPkts" },
++	{ 4, 0x18,MTXP, "TxUnicastPKts" },
++	{ 4, 0x1c,MCOL, "TxCollisions" },
++	{ 4, 0x20,MNOM, "TxSingleCollision" },
++	{ 4, 0x24,MNOM, "TxMultipleCollision" },
++	{ 4, 0x28,MNOM, "TxDeferredCollision" },
++	{ 4, 0x2c,MNOM, "TxLateCollision" },
++	{ 4, 0x30,MNOM, "TxExcessiveCollision" },
++	{ 4, 0x34,MNOM, "TxFrameInDisc" },
++	{ 4, 0x38,MNOM, "TxPausePkts" },
++	{ 4, 0x3c,MNOM, "TxQPKTQ1" },
++	{ 4, 0x40,MNOM, "TxQPKTQ2" },
++	{ 4, 0x44,MNOM, "TxQPKTQ3" },
++	{ 4, 0x48,MNOM, "TxQPKTQ4" },
++	{ 4, 0x4c,MNOM, "TxQPKTQ5" },
++	{ 8, 0x50,MRXB, "RxOctets" },
++	{ 4, 0x58,MRXE, "RxUndersizePkts" },
++	{ 4, 0x5c,MNOM, "RxPausePkts" },
++	{ 4, 0x60,MNOM, "RxPkts64Octets" },
++	{ 4, 0x64,MNOM, "RxPkts65to127Octets" },
++	{ 4, 0x68,MNOM, "RxPkts128to255Octets" },
++	{ 4, 0x6c,MNOM, "RxPkts256to511Octets" },
++	{ 4, 0x70,MNOM, "RxPkts512to1023Octets" },
++	{ 4, 0x74,MNOM, "RxPkts1024toMaxPktsOctets" },
++	{ 4, 0x78,MRLE, "RxOversizePkts" },
++	{ 4, 0x7c,MRXE, "RxJabbers" },
++	{ 4, 0x80,MRXE, "RxAlignmentErrors" },
++	{ 4, 0x84,MCRC, "RxFCSErrors" },
++	{ 8, 0x88,MNOM, "RxGoodOctets" },
++	{ 4, 0x90,MRXD, "RxDropPkts" },
++	{ 4, 0x94,MRXP, "RxUnicastPkts" },
++	{ 4, 0x98,MRXM, "RxMulticastPkts" },
++	{ 4, 0x9c,MRXP, "RxBroadcastPkts" },
++	{ 4, 0xa0,MNOM, "RxSAChanges" },
++	{ 4, 0xa4,MRXE, "RxFragments" },
++	{ 4, 0xa8,MNOM, "RxJumboPkt" },
++	{ 4, 0xac,MRXE, "RxSymblErr" },
++	{ 4, 0xb0,MNOM, "InRangeErrCount" },
++	{ 4, 0xb4,MNOM, "OutRangeErrCount" },
++	{ 4, 0xb8,MNOM, "EEELpiEvent" },
++	{ 4, 0xbc,MNOM, "EEELpiDuration" },
++	{ 4, 0xc0,MRXD, "RxDiscard" },
++	{ 4, 0xc8,MNOM, "TxQPKTQ6" },
++	{ 4, 0xcc,MNOM, "TxQPKTQ7" },
++	{ 4, 0xd0,MNOM, "TxPkts64Octets" },
++	{ 4, 0xd4,MNOM, "TxPkts65to127Octets" },
++	{ 4, 0xd8,MNOM, "TxPkts128to255Octets" },
++	{ 4, 0xdc,MNOM, "TxPkts256to511Ocets" },
++	{ 4, 0xe0,MNOM, "TxPkts512to1023Ocets" },
++	{ 4, 0xe4,MNOM, "TxPkts1024toMaxPktOcets" },
+ };
+ 
+ #define B53_MIBS_58XX_SIZE	ARRAY_SIZE(b53_mibs_58xx)
+@@ -495,9 +566,14 @@ static void b53_imp_vlan_setup(struct dsa_switch *ds, int cpu_port)
+ 	 * the same VLAN.
+ 	 */
+ 	b53_for_each_port(dev, i) {
++#if B53_SOS_BRIDGE_PORTMAP_CACHE 
++		pvlan = dev->ports[i].vlan_ctl_mask;
++#else
+ 		b53_read16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(i), &pvlan);
++#endif
+ 		pvlan |= BIT(cpu_port);
+ 		b53_write16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(i), pvlan);
++		dev->ports[i].vlan_ctl_mask = pvlan;
+ 	}
+ }
+ 
+@@ -515,10 +591,15 @@ static int b53_enable_port(struct dsa_switch *ds, int port,
+ 	 * if member of a bridge, restore its membership prior to
+ 	 * bringing down this port.
+ 	 */
++#if B53_SOS_BRIDGE_PORTMAP_CACHE 
++	pvlan = dev->ports[port].vlan_ctl_mask;
++#else
+ 	b53_read16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(port), &pvlan);
++#endif
+ 	pvlan &= ~0x1ff;
+ 	pvlan |= BIT(port);
+ 	pvlan |= dev->ports[port].vlan_ctl_mask;
++	dev->ports[port].vlan_ctl_mask = pvlan;
+ 	b53_write16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(port), pvlan);
+ 
+ 	b53_imp_vlan_setup(ds, cpu_port);
+@@ -538,6 +619,63 @@ static void b53_disable_port(struct dsa_switch *ds, int port,
+ 	b53_write8(dev, B53_CTRL_PAGE, B53_PORT_CTRL(port), reg);
+ }
+ 
++static void b53_brcm_hdr_setup(struct dsa_switch *ds, int port)
++{
++	bool tag_en = 1;
++	
++	struct b53_device *dev = ds->priv;
++	u8 hdr_ctl, val;
++	u16 reg;
++
++	/* Resolve which bit controls the Broadcom tag */
++	switch (port) {
++	case 8:
++		val = BRCM_HDR_P8_EN;
++		break;
++	case 7:
++		val = BRCM_HDR_P7_EN;
++		break;
++	case 5:
++		val = BRCM_HDR_P5_EN;
++		break;
++	default:
++		val = 0;
++		break;
++	}
++
++	/* Enable Broadcom tags for IMP port */
++	b53_read8(dev, B53_MGMT_PAGE, B53_BRCM_HDR, &hdr_ctl);
++	if (tag_en)
++		hdr_ctl |= val;
++	else
++		hdr_ctl &= ~val;
++	b53_write8(dev, B53_MGMT_PAGE, B53_BRCM_HDR, hdr_ctl);
++
++	/* Registers below are only accessible on newer devices */
++	if (!is58xx(dev))
++		return;
++
++	/* Enable reception Broadcom tag for CPU TX (switch RX) to
++	 * allow us to tag outgoing frames
++	 */
++	b53_read16(dev, B53_MGMT_PAGE, B53_BRCM_HDR_RX_DIS, &reg);
++	if (tag_en)
++		reg &= ~BIT(port);
++	else
++		reg |= BIT(port);
++	b53_write16(dev, B53_MGMT_PAGE, B53_BRCM_HDR_RX_DIS, reg);
++
++	/* Enable transmission of Broadcom tags from the switch (CPU RX) to
++	 * allow delivering frames to the per-port net_devices
++	 */
++	b53_read16(dev, B53_MGMT_PAGE, B53_BRCM_HDR_TX_DIS, &reg);
++	if (tag_en)
++		reg &= ~BIT(port);
++	else
++		reg |= BIT(port);
++	b53_write16(dev, B53_MGMT_PAGE, B53_BRCM_HDR_TX_DIS, reg);
++}
++
+ static void b53_enable_cpu_port(struct b53_device *dev)
+ {
+ 	unsigned int cpu_port = dev->cpu_port;
+@@ -551,6 +689,9 @@ static void b53_enable_cpu_port(struct b53_device *dev)
+ 		    PORT_CTRL_RX_MCST_EN |
+ 		    PORT_CTRL_RX_UCST_EN;
+ 	b53_write8(dev, B53_CTRL_PAGE, B53_PORT_CTRL(cpu_port), port_ctrl);
++	b53_brcm_hdr_setup(dev->ds, cpu_port);
++	pr_debug("%s DSA cpu_port %d port_ctrl 0x%x\n",__FUNCTION__,cpu_port,port_ctrl);
++
+ }
+ 
+ static void b53_enable_mib(struct b53_device *dev)
+@@ -577,9 +718,10 @@ static int b53_configure_vlan(struct b53_device *dev)
+ 
+ 	b53_enable_vlan(dev, false);
+ 
+-	b53_for_each_port(dev, i)
++	b53_for_each_port(dev, i) {
+ 		b53_write16(dev, B53_VLAN_PAGE,
+ 			    B53_VLAN_PORT_DEF_TAG(i), 1);
++	}
+ 
+ 	if (!is5325(dev) && !is5365(dev))
+ 		b53_set_jumbo(dev, dev->enable_jumbo, false);
+@@ -787,9 +929,120 @@ void b53_get_ethtool_stats(struct dsa_switch *ds, int port, uint64_t *data)
+ 	}
+ 
+ 	mutex_unlock(&dev->stats_mutex);
++	{
++	u32 val32=0;
++	b53_read32(dev, 0x41, (0x10 + port*4), &val32);
++	pr_debug("%s DSA port %d val 0x%08x\n",__FUNCTION__,port,val32);
++	}
+ }
+ EXPORT_SYMBOL(b53_get_ethtool_stats);
+ 
++static void b53_stats_work_exec(struct work_struct *work)
++{
++	struct b53_work *stats_work = container_of(work, struct b53_work, work);
++	struct b53_device *dev=stats_work->dev;
++	unsigned int mib_size = b53_get_mib_size(dev);
++	const struct b53_mib_desc *mibs = b53_get_mib(dev);
++	const struct b53_mib_desc *s;
++	struct rtnl_link_stats64 *storage;
++	unsigned int i;
++	unsigned int port;
++	u64 val = 0;
++
++	for (port = 0; port < dev->num_ports; port++) {
++
++		mutex_lock(&dev->stats_mutex);
++
++		storage=&dev->stats[port];
++		memset(storage,0,sizeof(struct rtnl_link_stats64));
++
++		for (i = 0; i < mib_size; i++) {
++			s = &mibs[i];
++
++			val=0;
++			 		
++			if (s->map == MNOM) continue; // not used don't read
++
++			if (s->size == 8) {
++				b53_read64(dev, B53_MIB_PAGE(port), s->offset, &val);
++			} else {
++				u32 val32;
++
++				b53_read32(dev, B53_MIB_PAGE(port), s->offset,
++					   &val32);
++				val = val32;
++			}
++			switch(s->map) {
++				case MTXB:
++				storage->tx_bytes += val;
++				break;
++				case MTXD:
++				storage->tx_dropped += val;
++				break;
++				case MTXP:
++				storage->tx_packets += val;
++				break;
++				case MTXM:
++				storage->tx_packets += val;
++				storage->multicast += val;
++				break;
++				case MTXE:
++				storage->tx_errors += val;
++				break;
++				case MCOL:
++				storage->collisions += val;
++				break;
++				case MRXB:
++				storage->rx_bytes += val;
++				break;
++				case MRXD:
++				storage->rx_dropped += val;
++				break;
++				case MRXP:
++				storage->rx_packets += val;
++				case MRXM:
++				storage->rx_packets += val;
++				storage->multicast += val;
++				break;
++				case MRXE:
++				storage->rx_errors += val;
++				break;
++				case MRLE:
++				storage->rx_errors += val;
++				storage->rx_length_errors += val;
++				break;
++				case MCRC:
++				storage->rx_crc_errors += val;
++				break;
++				case MRME:
++				storage->rx_missed_errors += val;
++				break;
++			}
++		}
++		mutex_unlock(&dev->stats_mutex);
++	}
++}
++
++static void b53_stats_timer_handler(ulong data)
++{
++	schedule_work(&b53_stats_work.work);
++	stats_timer.expires = jiffies + 1*HZ;
++	add_timer(&stats_timer);
++}
++
++void b53_get_dev_stats(struct dsa_switch *ds, int port,struct rtnl_link_stats64 *stats)
++{
++	struct b53_device *dev = ds->priv;
++	
++	if (stats!=NULL) {
++		memcpy(stats,&dev->stats[port],sizeof(struct rtnl_link_stats64));
++	} else {
++		dev_err(ds->dev, "NULL stats64 pointer\n");
++	}
++
++}
++EXPORT_SYMBOL(b53_get_dev_stats);
++
+ int b53_get_sset_count(struct dsa_switch *ds)
+ {
+ 	struct b53_device *dev = ds->priv;
+@@ -953,6 +1206,7 @@ static void b53_adjust_link(struct dsa_switch *ds, int port,
+ 			b53_write8(dev, B53_CTRL_PAGE, po_reg, gmii_po);
+ 		}
+ 	}
++	pr_debug("%s DSA port %d speed %d\n",__FUNCTION__,port,phydev->speed);
+ }
+ 
+ int b53_vlan_filtering(struct dsa_switch *ds, int port, bool vlan_filtering)
+@@ -990,22 +1244,61 @@ void b53_vlan_add(struct dsa_switch *ds, int port,
+ 	struct b53_vlan *vl;
+ 	u16 vid;
+ 
++#if B53_SOS_BRIDGE_PVID_CPU_HACK
++	if (pvid) {
++		if (port == cpu_port) {
++			if (vlan->vid_begin !=1 ) {
++				return; // don't set pvid on cpu port - xconnect breaks CPU port
++			}
++		}
++	}
++#endif
++
+ 	for (vid = vlan->vid_begin; vid <= vlan->vid_end; ++vid) {
+ 		vl = &dev->vlans[vid];
+ 
+ 		b53_get_vlan_entry(dev, vid, vl);
+ 
++#ifdef B53_SOS_RESERVED_VLANS 1
++		if (port == cpu_port) {
++			/*
++				Reserved vlan case figure out how to generalize
++			*/
++			pr_debug("%s:%d DSA port %d vlan %d %d pvid %d untagged %d \n",__FUNCTION__,__LINE__,port,vlan->vid_begin,vlan->vid_end,pvid,untagged);
++			switch(vid) {
++				case 4088:
++				case 4089:
++				case 4090:
++				pvid=0;
++				untagged=0;
++			} 
++		} 
++#endif
++
+ 		vl->members |= BIT(port) | BIT(cpu_port);
+-		if (untagged)
++
++		if (untagged) {
+ 			vl->untag |= BIT(port);
+-		else
++		} else {
+ 			vl->untag &= ~BIT(port);
+-		vl->untag &= ~BIT(cpu_port);
++		}
++
++#if B53_SOS_WAN_PVID_CPU_HACK
++		// WAN and IMP port needs this for default vlan path
++		if (vid==1) {
++			vl->untag |= BIT(cpu_port);
++			vl->untag |= BIT(B53_WAN_PORT);
++			vl->members |= BIT(B53_WAN_PORT);
++			vl->members |= BIT(cpu_port);
++		} 
++#endif
+ 
+ 		b53_set_vlan_entry(dev, vid, vl);
+ 		b53_fast_age_vlan(dev, vid);
++		b53_vlans[vid]++;
+ 	}
+ 
++	pr_debug("%s:%d DSA members 0x%x utmember 0x%x port %d vlan %d %d pvid %d untagged %d \n",__FUNCTION__,__LINE__,vl->members,vl->untag,port,vlan->vid_begin,vlan->vid_end,pvid,untagged);
+ 	if (pvid) {
+ 		b53_write16(dev, B53_VLAN_PAGE, B53_VLAN_PORT_DEF_TAG(port),
+ 			    vlan->vid_end);
+@@ -1044,10 +1337,12 @@ int b53_vlan_del(struct dsa_switch *ds, int port,
+ 
+ 		b53_set_vlan_entry(dev, vid, vl);
+ 		b53_fast_age_vlan(dev, vid);
++		b53_vlans[vid]--;
+ 	}
+ 
+ 	b53_write16(dev, B53_VLAN_PAGE, B53_VLAN_PORT_DEF_TAG(port), pvid);
+ 	b53_fast_age_vlan(dev, pvid);
++	pr_debug("%s DSA members 0x%x port %d vlan %d %d pvid %d untagged %d\n",__FUNCTION__,vl->members,port,vlan->vid_begin,vlan->vid_end,pvid,untagged);
+ 
+ 	return 0;
+ }
+@@ -1123,7 +1418,7 @@ static int b53_arl_read(struct b53_device *dev, u64 mac,
+ }
+ 
+ static int b53_arl_op(struct b53_device *dev, int op, int port,
+-		      const unsigned char *addr, u16 vid, bool is_valid)
++		      const unsigned char *addr, u16 vid, bool is_valid,bool is_static)
+ {
+ 	struct b53_arl_entry ent;
+ 	u32 fwd_entry;
+@@ -1158,7 +1453,7 @@ static int b53_arl_op(struct b53_device *dev, int op, int port,
+ 	ent.port = port;
+ 	ent.is_valid = is_valid;
+ 	ent.vid = vid;
+-	ent.is_static = true;
++	ent.is_static = is_static;
+ 	memcpy(ent.mac, addr, ETH_ALEN);
+ 	b53_arl_from_entry(&mac_vid, &fwd_entry, &ent);
+ 
+@@ -1181,7 +1476,18 @@ int b53_fdb_add(struct dsa_switch *ds, int port,
+ 	if (is5325(priv) || is5365(priv))
+ 		return -EOPNOTSUPP;
+ 
+-	return b53_arl_op(priv, 0, port, addr, vid, true);
++#if B53_SOS_BRIDGE_STATIC_ADDR_HACK 
++	port=priv->cpu_port;
++#endif
++	pr_debug("%s DSA port %d vid %d %02x:%02x:%02x:%02x:%02x:%02x\n",__FUNCTION__,
++		port,vid,
++		addr[0],
++		addr[1],
++		addr[2],
++		addr[3],
++		addr[4],
++		addr[5]);
++	return b53_arl_op(priv, 0, port, addr, vid, true,true);
+ }
+ EXPORT_SYMBOL(b53_fdb_add);
+ 
+@@ -1190,7 +1496,34 @@ int b53_fdb_del(struct dsa_switch *ds, int port,
+ {
+ 	struct b53_device *priv = ds->priv;
+ 
+-	return b53_arl_op(priv, 0, port, addr, vid, false);
++	if (vid==4095) {
++		int v=0;
++		for(v=0;v<4095;v++){
++			if (b53_vlans[v] > 0) {
++				pr_debug("%s DSA port %d vid %d %02x:%02x:%02x:%02x:%02x:%02x\n",__FUNCTION__,
++					port,v,
++					addr[0],
++					addr[1],
++					addr[2],
++					addr[3],
++					addr[4],
++					addr[5]);
++				b53_arl_op(priv, 0, port, addr,v, false,false);
++			}
++		}
++		return(0);
++	} 
++	pr_debug("%s DSA port %d vid %d %02x:%02x:%02x:%02x:%02x:%02x\n",__FUNCTION__,
++		port,vid,
++		addr[0],
++		addr[1],
++		addr[2],
++		addr[3],
++		addr[4],
++		addr[5]);
++
++	b53_arl_op(priv, 0, port, addr, vid, false,false);
++	return(0);
+ }
+ EXPORT_SYMBOL(b53_fdb_del);
+ 
+@@ -1232,8 +1565,26 @@ static int b53_fdb_copy(int port, const struct b53_arl_entry *ent,
+ 	if (!ent->is_valid)
+ 		return 0;
+ 
+-	if (port != ent->port)
+-		return 0;
++	if ( (port == 4) && (ent->port == 5) ) {
++		pr_debug("%s DSA CPU port %d vid %d valid %d age %d static %d %02x:%02x:%02x:%02x:%02x:%02x\n",__FUNCTION__,
++			ent->port,ent->vid,ent->is_valid,ent->is_age,ent->is_static,
++			ent->mac[0],
++			ent->mac[1],
++			ent->mac[2],
++			ent->mac[3],
++			ent->mac[4],
++			ent->mac[5]);
++	} 
++
++	if ( port!=ent->port ) return(0);
++	pr_debug("%s DSA port %d vid %d valid %d age %d static %d %02x:%02x:%02x:%02x:%02x:%02x\n",__FUNCTION__,
++		ent->port,ent->vid,ent->is_valid,ent->is_age,ent->is_static,
++		ent->mac[0],
++		ent->mac[1],
++		ent->mac[2],
++		ent->mac[3],
++		ent->mac[4],
++		ent->mac[5]);
+ 
+ 	return cb(ent->mac, ent->vid, ent->is_static, data);
+ }
+@@ -1295,7 +1646,11 @@ int b53_br_join(struct dsa_switch *ds, int port, struct net_device *br)
+ 		b53_write16(dev, B53_VLAN_PAGE, B53_JOIN_ALL_VLAN_EN, reg);
+ 	}
+ 
++#if B53_SOS_BRIDGE_PORTMAP_CACHE 
++	pvlan = dev->ports[port].vlan_ctl_mask;
++#else
+ 	b53_read16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(port), &pvlan);
++#endif
+ 
+ 	b53_for_each_port(dev, i) {
+ 		if (ds->ports[i].bridge_dev != br)
+@@ -1304,11 +1659,14 @@ int b53_br_join(struct dsa_switch *ds, int port, struct net_device *br)
+ 		/* Add this local port to the remote port VLAN control
+ 		 * membership and update the remote port bitmask
+ 		 */
++#if B53_SOS_BRIDGE_PORTMAP_CACHE 
++		reg = dev->ports[i].vlan_ctl_mask;
++#else
+ 		b53_read16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(i), &reg);
++#endif
+ 		reg |= BIT(port);
+ 		b53_write16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(i), reg);
+ 		dev->ports[i].vlan_ctl_mask = reg;
+-
+ 		pvlan |= BIT(i);
+ 	}
+ 
+@@ -1317,7 +1675,7 @@ int b53_br_join(struct dsa_switch *ds, int port, struct net_device *br)
+ 	 */
+ 	b53_write16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(port), pvlan);
+ 	dev->ports[port].vlan_ctl_mask = pvlan;
+-
++	pr_debug("%s DSA bridge %s port %d pvlan 0x%x\n",__FUNCTION__,br->name,port,pvlan);
+ 	return 0;
+ }
+ EXPORT_SYMBOL(b53_br_join);
+@@ -1368,40 +1726,70 @@ void b53_br_leave(struct dsa_switch *ds, int port, struct net_device *br)
+ 		vl->untag |= BIT(port) | BIT(dev->cpu_port);
+ 		b53_set_vlan_entry(dev, pvid, vl);
+ 	}
++	pr_debug("%s DSA bridge %s port %d pvlan 0x%x\n",__FUNCTION__,br->name,port,pvlan);
+ }
+ EXPORT_SYMBOL(b53_br_leave);
+ 
++static char *stp_state(u8 state)
++{
++
++	switch (state) {
++	case BR_STATE_DISABLED:
++		return("DISABLED");
++		break;
++	case BR_STATE_LISTENING:
++		return("LISTENING");
++		break;
++	case BR_STATE_LEARNING:
++		return("LEARNING");
++		break;
++	case BR_STATE_FORWARDING:
++		return("FORWARDING");
++		break;
++	case BR_STATE_BLOCKING:
++		return("BLOCKING");
++		break;
++	}
++	return("UNKNOWN");
++}
++
++u8 port_stp_state[12]={0};
++#define DIS_LEARN 0x3c
+ void b53_br_set_stp_state(struct dsa_switch *ds, int port, u8 state)
+ {
+ 	struct b53_device *dev = ds->priv;
+-	u8 hw_state;
+-	u8 reg;
++	u8 hw_state=0;
+ 
+ 	switch (state) {
+ 	case BR_STATE_DISABLED:
+ 		hw_state = PORT_CTRL_DIS_STATE;
++		hw_state |= PORT_CTRL_RX_DISABLE;
++		hw_state |= PORT_CTRL_TX_DISABLE;
+ 		break;
+ 	case BR_STATE_LISTENING:
+ 		hw_state = PORT_CTRL_LISTEN_STATE;
++		hw_state |= PORT_CTRL_TX_DISABLE;
+ 		break;
+ 	case BR_STATE_LEARNING:
+ 		hw_state = PORT_CTRL_LEARN_STATE;
++		hw_state |= PORT_CTRL_TX_DISABLE;
+ 		break;
+ 	case BR_STATE_FORWARDING:
+ 		hw_state = PORT_CTRL_FWD_STATE;
+ 		break;
+ 	case BR_STATE_BLOCKING:
+ 		hw_state = PORT_CTRL_BLOCK_STATE;
++		hw_state |= PORT_CTRL_TX_DISABLE;
+ 		break;
+ 	default:
+ 		dev_err(ds->dev, "invalid STP state: %d\n", state);
+ 		return;
+ 	}
+ 
+-	b53_read8(dev, B53_CTRL_PAGE, B53_PORT_CTRL(port), &reg);
+-	reg &= ~PORT_CTRL_STP_STATE_MASK;
+-	reg |= hw_state;
+-	b53_write8(dev, B53_CTRL_PAGE, B53_PORT_CTRL(port), reg);
++	port_stp_state[port]=state;
++	b53_write8(dev, B53_CTRL_PAGE, B53_PORT_CTRL(port), hw_state);
++	pr_debug("%s DSA port %d dev %s state %d %s reg 0x%x\n",__FUNCTION__,
++		port,ds->ports[port].netdev->name,state,stp_state(state),hw_state);
+ }
+ EXPORT_SYMBOL(b53_br_set_stp_state);
+ 
+@@ -1416,7 +1804,7 @@ EXPORT_SYMBOL(b53_br_fast_age);
+ 
+ static enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds)
+ {
+-	return DSA_TAG_PROTO_NONE;
++	return DSA_TAG_PROTO_BRCM;
+ }
+ 
+ int b53_mirror_add(struct dsa_switch *ds, int port,
+@@ -1488,6 +1876,7 @@ static const struct dsa_switch_ops b53_switch_ops = {
+ 	.setup			= b53_setup,
+ 	.get_strings		= b53_get_strings,
+ 	.get_ethtool_stats	= b53_get_ethtool_stats,
++	.get_dev_stats	= b53_get_dev_stats,
+ 	.get_sset_count		= b53_get_sset_count,
+ 	.phy_read		= b53_phy_read16,
+ 	.phy_write		= b53_phy_write16,
+@@ -1742,6 +2131,131 @@ static const struct b53_chip_data b53_switch_chips[] = {
+ 	},
+ };
+ 
++#define REG_BUF_SIZE 128 
++#define VAL_BUF_SIZE 128 
++static char regbuf[REG_BUF_SIZE]={0}; 
++static char valbuf[VAL_BUF_SIZE]={0}; 
++static char cmd[24]={"NULL"};
++static u16 page=0;
++static	u16 offset=0;
++static u64 val=0;
++static u16 regsize=1;
++static struct b53_device *regdev=NULL;
++static u16 done=0;
++/*
++robord <page> <reg> [length] (length can be 1, 2, 4, 6, 8 bytes. Default length is 2 bytes)
++robowr <page> <reg> <val> [length] (length can be 1, 2, 4, 6, 8 bytes. Default length is 2 bytes)
++*/
++
++static ssize_t b53_common_reg_read(struct file *file, char __user *ubuf, size_t len, loff_t *ppos)
++{
++	if( strcmp(cmd,"robord")==0 ) {
++		if ((regdev!=NULL) && (done==0)) {
++			done=1;
++			val=0;
++			switch(regsize) {
++			case 1:
++			b53_read8(regdev,page,offset,(u8 *)&val);
++			break;
++			case 2:
++			b53_read16(regdev,page,offset,(u16 *)&val);
++			break;
++			case 4:
++			b53_read32(regdev,page,offset,(u32 *)&val);
++			break;
++			case 6:
++			b53_read48(regdev,page,offset,&val);
++			break;
++			case 8:
++			b53_read64(regdev,page,offset,&val);
++			break;
++			}
++		}
++	}
++	switch(regsize) {
++	case 1:
++	snprintf(valbuf,VAL_BUF_SIZE, "0x%02x\n",(u8)val);
++	break;
++	case 2:
++	snprintf(valbuf,VAL_BUF_SIZE, "0x%04x\n",(u16)val);
++	break;
++	case 4:
++	snprintf(valbuf,VAL_BUF_SIZE, "0x%08x\n",(u32)val);
++	break;
++	case 6:
++	snprintf(valbuf,VAL_BUF_SIZE, "0x%llx\n",val);
++	break;
++	case 8:
++	snprintf(valbuf,VAL_BUF_SIZE, "0x%llx\n",val);
++	break;
++	}
++	return (simple_read_from_buffer(ubuf, len, ppos, valbuf, strlen(valbuf)));
++}
++
++static ssize_t b53_common_reg_write(struct file *file, const char __user *ubuf, size_t len, loff_t *ppos)
++{
++	int bytes = 0;
++	int n=0;
++
++	if (len >= REG_BUF_SIZE) {
++		return -ENOMEM;
++	}
++
++	memset(valbuf,0,VAL_BUF_SIZE);
++
++	bytes = simple_write_to_buffer(regbuf,sizeof(regbuf) - 1, ppos, ubuf, len);
++	regbuf[sizeof(regbuf) - 1] = '\0';
++
++	n=sscanf(regbuf,"%s",&cmd);
++	if (n != 1) {
++		return -EFAULT;
++	}
++	if( strcmp(cmd,"robord")==0 ) {
++		n=sscanf(regbuf,"%s %x %x %u",&cmd,&page,&offset,&regsize);
++		if (n==3) regsize=2;
++	} else if( strcmp(cmd,"robowr")==0 ) {
++		n=sscanf(regbuf,"%s %x %x %x %u",&cmd,&page,&offset,&val,&regsize);
++		if (n==4) regsize=2;
++	} else {
++		return -EFAULT;
++	}
++
++	done=0;
++
++	if( strcmp(cmd,"robowr")==0 ) {
++		if ((regdev!=NULL) && (done==0)) {
++			done=1;
++			switch(regsize) {
++			case 1:
++			b53_write8(regdev,page,offset,(u8)val);
++			break;
++			case 2:
++			b53_write16(regdev,page,offset,(u16)val);
++			break;
++			case 4:
++			b53_write32(regdev,page,offset,(u32)val);
++			break;
++			case 6:
++			b53_write48(regdev,page,offset,val);
++			break;
++			case 8:
++			b53_write64(regdev,page,offset,val);
++			break;
++			}
++		}
++	}
++
++	return (len);
++}
++
++static const struct file_operations b53_common_reg_ops = {
++	.owner  = THIS_MODULE,
++	.open   = simple_open,
++	.write  = b53_common_reg_write,
++	.read   = b53_common_reg_read,
++	.llseek = default_llseek,
++};
++
+ static int b53_switch_init(struct b53_device *dev)
+ {
+ 	unsigned int i;
+@@ -1823,6 +2337,13 @@ static int b53_switch_init(struct b53_device *dev)
+ 			return ret;
+ 	}
+ 
++	{
++	static struct dentry *debugfs_dir = NULL;
++	debugfs_dir = debugfs_create_dir("b53_common", NULL);
++	debugfs_create_file("robordwr",(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH), debugfs_dir, NULL, &b53_common_reg_ops);
++	regdev=dev;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1921,6 +2442,33 @@ int b53_switch_detect(struct b53_device *dev)
+ }
+ EXPORT_SYMBOL(b53_switch_detect);
+ 
++static void b53_switch_rate_limit(struct b53_device *dev)
++{
++// rate limit bc and stp mc so that loops don't take for ever for stp to resolve
++// bridge rx gets hammered and stp state machine goes nowhere
++	int i;
++
++#define BC_SUP_RATE_CTL_PAGE 0x41
++#define BC_SUP_RATE_CTL_OFFSET 0x10
++#define COMM_IRC_CON 0x00
++
++	u32 val32=BIT(0)+BIT(11);// ref count
++	val32|=(BIT(28)+BIT(27)+BIT(26)+BIT(24)+BIT(23)+BIT(22));// enable rsv mc bc bucket 1 and 0
++
++	b53_for_each_port(dev, i) {
++		if(i<4) {
++			b53_write32(dev, BC_SUP_RATE_CTL_PAGE, (BC_SUP_RATE_CTL_OFFSET + i*4), val32);
++			pr_debug("%s DSA port %d val 0x%08x\n",__FUNCTION__,i,val32);
++		}
++	}
++	b53_read32(dev, BC_SUP_RATE_CTL_PAGE, COMM_IRC_CON, &val32);
++	val32 |= (BIT(17)+BIT(8)); // ref count rate
++	val32 |= (BIT(2)+BIT(3)+BIT(11)+BIT(12));// bc and mc stp
++	b53_write32(dev, BC_SUP_RATE_CTL_PAGE, COMM_IRC_CON, val32);
++	pr_debug("%s DSA COMM_IRC_CON val 0x%08x\n",__FUNCTION__,val32);
++
++}
++
+ int b53_switch_register(struct b53_device *dev)
+ {
+ 	int ret;
+@@ -1939,10 +2487,29 @@ int b53_switch_register(struct b53_device *dev)
+ 
+ 	pr_info("found switch: %s, rev %i\n", dev->name, dev->core_rev);
+ 
+-	return dsa_register_switch(dev->ds);
++	ret=dsa_register_switch(dev->ds);
++	if (ret==0) {
++		pr_info("DSA starting timer and netdev stats work for %s\n", dev->name);
++		INIT_WORK(&b53_stats_work.work,b53_stats_work_exec);
++		b53_stats_work.dev=dev;
++		init_timer(&stats_timer);
++		stats_timer.data = 0;
++		stats_timer.function = b53_stats_timer_handler;
++		stats_timer.expires = jiffies + 1*60*HZ; // 1 minute startup delay
++		add_timer(&stats_timer);
++		if(0)b53_switch_rate_limit(dev);
++	}
++	return(ret);
+ }
+ EXPORT_SYMBOL(b53_switch_register);
+ 
++void b53_switch_remove(struct b53_device *dev)
++{
++	pr_info("DSA stopping timer and netdev stats work for %s\n", dev->name);
++	del_timer(&stats_timer);
++	dsa_unregister_switch(dev->ds);
++}
++
+ MODULE_AUTHOR("Jonas Gorski <jogo@openwrt.org>");
+ MODULE_DESCRIPTION("B53 switch library");
+ MODULE_LICENSE("Dual BSD/GPL");
+-- 
+1.9.1
+

@@ -1,0 +1,30 @@
+diff -urN a/package/base-files/files/lib/preinit/84_mount_pstore b/package/base-files/files/lib/preinit/84_mount_pstore
+--- a/package/base-files/files/lib/preinit/84_mount_pstore	1970-01-01 05:30:00.000000000 +0530
++++ b/package/base-files/files/lib/preinit/84_mount_pstore	2021-05-25 16:13:50.770445180 +0530
+@@ -0,0 +1,8 @@
++#!/bin/sh
++#
++# Mount pstore path to store the REBOOT_CRASH reason
++#
++
++mount -t pstore pstore /sys/fs/pstore/
++
++
+
+diff -urN a/target/linux/mediatek/mt7622/config-5.4 b/target/linux/mediatek/mt7622/config-5.4
+--- a/target/linux/mediatek/mt7622/config-5.4	2021-05-25 14:54:27.998553921 +0530
++++ b/target/linux/mediatek/mt7622/config-5.4	2021-05-25 17:37:06.194331127 +0530
+@@ -439,3 +439,13 @@
+ CONFIG_ZLIB_DEFLATE=y
+ CONFIG_ZLIB_INFLATE=y
+ CONFIG_ZONE_DMA32=y
++CONFIG_PSTORE=y
++CONFIG_PSTORE_CONSOLE=y
++CONFIG_PSTORE_PMSG=y
++CONFIG_PSTORE_RAM=y
++# CONFIG_PSTORE_DEFLATE_COMPRESS is not set
++# CONFIG_PSTORE_LZO_COMPRESS is not set
++# CONFIG_PSTORE_LZ4_COMPRESS is not set
++# CONFIG_PSTORE_LZ4HC_COMPRESS is not set
++# CONFIG_PSTORE_842_COMPRESS is not set
++# CONFIG_PSTORE_ZSTD_COMPRESS is not set

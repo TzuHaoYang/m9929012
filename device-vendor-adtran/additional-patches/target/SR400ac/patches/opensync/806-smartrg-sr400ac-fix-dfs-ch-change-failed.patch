@@ -1,0 +1,82 @@
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -1025,20 +1025,41 @@ util_vif_ap_vlan_addr(const char *vif, c
+ }
+ 
+ static bool
++util_lookup_rconf_by_ifname(struct schema_Wifi_Radio_Config *rconf,
++                           const char *ifname)
++{
++    ovsdb_table_t table_Wifi_Radio_Config;
++    OVSDB_TABLE_INIT(Wifi_Radio_Config, if_name);
++
++    json_t *where = ovsdb_where_simple(SCHEMA_COLUMN(Wifi_Radio_Config, if_name), ifname);
++    if (!where)
++        return false;
++    return ovsdb_table_select_one_where(&table_Wifi_Radio_Config, where, rconf);
++}
++
++static bool
+ util_get_phy_chan(const char *phy,
+                   int *chan)
+ {
+     char ap_vif[BFR_SIZE_64] = "";
++    struct schema_Wifi_Radio_Config rconf;
+ 
+     if (util_wifi_get_phy_any_ap_vif(phy, ap_vif, sizeof(ap_vif))) {
+         LOGE("%s: get ap vif failed", phy);
+-        return false;
++        goto rconf_chan;
+     }
+ 
+     *chan = nl_req_get_iface_curr_chan(&target_nl_global, util_sys_ifname_to_idx(ap_vif));
+     if (*chan > 0)
+         return true;
+ 
++rconf_chan:
++    if (util_lookup_rconf_by_ifname(&rconf, phy)) {
++        LOGD("%s: lookup rconf chan %d", phy, rconf.channel);
++        *chan = rconf.channel;
++        return true;
++    }
++
+     return false;
+ }
+ 
+@@ -1461,8 +1482,6 @@ hapd_ctrl_closed(struct ctrl *ctrl)
+ {
+     struct hapd *hapd = container_of(ctrl, struct hapd, ctrl);
+     hapd_sta_regen(hapd);
+-    unlink(hapd->confpath);
+-    unlink(hapd->pskspath);
+ }
+ 
+ static void
+@@ -2679,12 +2698,18 @@ bool target_radio_state_get(char *phy, s
+ 
+     if ((rstate->channel_exists = util_get_phy_chan(phy, &v)))
+         rstate->channel = v;
++    else
++        rstate->channel_present = false;
+ 
+     if ((rstate->bcn_int_exists = util_get_bcn_int(phy, &v)))
+         rstate->bcn_int = v;
++    else
++        rstate->bcn_int_present = false;
+ 
+     if ((rstate->ht_mode_exists = util_radio_ht_mode_get(phy, htmode, sizeof(htmode))))
+         STRSCPY(rstate->ht_mode, htmode);
++    else
++        rstate->ht_mode_present = false;
+ 
+     if ((rstate->country_exists = util_radio_country_get(phy, country, sizeof(country))))
+         STRSCPY(rstate->country, country);
+@@ -2700,6 +2725,8 @@ bool target_radio_state_get(char *phy, s
+ 
+     if ((rstate->hw_mode_exists = util_hostapd_get_hw_mode(phy, hwmode, sizeof(hwmode))))
+         STRSCPY(rstate->hw_mode, hwmode);
++    else
++        rstate->hw_mode_present = false;
+ 
+     n = 0;
+ 

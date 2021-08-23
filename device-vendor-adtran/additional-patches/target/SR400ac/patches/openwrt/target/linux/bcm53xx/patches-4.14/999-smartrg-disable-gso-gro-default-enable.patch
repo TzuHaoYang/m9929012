@@ -1,0 +1,22 @@
+From: Chad Monroe <chad.monroe@smartrg.com>
+Date: Thur, 07 Nov 2019 13:46:28 -0700
+Subject: bcm53xx: disable gso and gro for all interfaces 
+
+Signed-off-by: Chad Monroe <chad.monroe@smartrg.com>
+--
+ dev.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -7679,8 +7679,8 @@ int register_netdevice(struct net_device
+ 	/* Transfer changeable features to wanted_features and enable
+ 	 * software offloads (GSO and GRO).
+ 	 */
+-	dev->hw_features |= NETIF_F_SOFT_FEATURES;
+-	dev->features |= NETIF_F_SOFT_FEATURES;
++	//dev->hw_features |= NETIF_F_SOFT_FEATURES;
++	//dev->features |= NETIF_F_SOFT_FEATURES;
+ 
+ 	if (dev->netdev_ops->ndo_udp_tunnel_add) {
+ 		dev->features |= NETIF_F_RX_UDP_TUNNEL_PORT;

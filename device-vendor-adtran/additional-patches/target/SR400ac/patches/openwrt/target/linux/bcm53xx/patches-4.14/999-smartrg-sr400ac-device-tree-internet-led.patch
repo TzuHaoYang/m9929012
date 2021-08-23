@@ -1,0 +1,29 @@
+From: Chad Monroe <chad.monroe@smartrg.com>
+Date: Wed, 29 Apr 2020 12:54:48 -0700
+Subject: bcm53xx: re-name wan LED to internet
+
+Signed-off-by: Chad Monroe <chad.monroe@smartrg.com>
+--
+ bcm4708-smartrg-sr400ac.dts |    8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+--- a/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
++++ b/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
+@@ -120,13 +120,13 @@
+ 			gpios = <&chipcommon 10 GPIO_ACTIVE_HIGH>;
+ 		};
+ 
+-		wan-white {
+-			label = "bcm53xx:white:wan";
++		internet-white {
++			label = "bcm53xx:white:internet";
+ 			gpios = <&chipcommon 12 GPIO_ACTIVE_HIGH>;
+ 		};
+ 
+-		wan-red {
+-			label = "bcm53xx:red:wan";
++		internet-red {
++			label = "bcm53xx:red:internet";
+ 			gpios = <&chipcommon 13 GPIO_ACTIVE_HIGH>;
+ 		};
+ 	};

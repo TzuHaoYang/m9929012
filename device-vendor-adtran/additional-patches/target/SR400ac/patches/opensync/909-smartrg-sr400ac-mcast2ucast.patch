@@ -1,0 +1,48 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-24 18:02:16.016944698 +0530
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-05-24 18:08:26.540934035 +0530
+@@ -3139,9 +3138,10 @@
+     if (changed->dynamic_beacon)
+         util_set_int_lazy(vif, "g_dynamicbeacon", "dynamicbeacon", D(vconf->dynamic_beacon, 0));
+ 
++#if 0 // WM_MT_834_5 mcast2ucast is set via hostapd
+     if (changed->mcast2ucast)
+         util_set_int_lazy(vif, "g_mcastenhance", "mcastenhance", D(vconf->mcast2ucast, 0) ? 2 : 0);
+-
++#endif
+     if (changed->ap_bridge)
+         util_set_int_lazy(vif, "get_ap_bridge", "ap_bridge", D(vconf->ap_bridge, 0));
+ 
+@@ -3227,8 +3227,10 @@
+     if ((vstate->dynamic_beacon_exists = util_get_int(vif, "g_dynamicbeacon", &v)))
+         vstate->dynamic_beacon = !!v;
+ 
++#if 0 // WM_MT_834_5 mcast2ucast is set via hostapd
+     if ((vstate->mcast2ucast_exists = util_get_int(vif, "g_mcastenhance", &v)))
+         vstate->mcast2ucast = !!v;
++#endif
+ 
+     vstate->mac_list_type_exists = hostapd_get_mac_acl_info(phy, vif, vstate);
+ 
+diff -urN a/src/lib/hostap/src/hapd.c b/src/lib/hostap/src/hapd.c
+--- a/src/lib/hostap/src/hapd.c	2021-05-24 18:01:50.572945430 +0530
++++ b/src/lib/hostap/src/hapd.c	2021-05-24 17:46:52.508971273 +0530
+@@ -621,6 +621,9 @@
+     if (vconf->btm_exists)
+         csnprintf(&buf, &len, "bss_transition=%d\n", !!vconf->btm);
+ 
++    if (vconf->mcast2ucast_exists)
++        csnprintf(&buf, &len, "multicast_to_unicast=%d\n", !!vconf->mcast2ucast);
++
+     if (vconf->rrm_exists)
+         csnprintf(&buf, &len, "rrm_neighbor_report=%d\n", !!vconf->rrm);
+ 
+@@ -834,6 +837,8 @@
+         vstate->ft_psk = atoi(p);
+     if ((vstate->btm_exists = (p = ini_geta(conf, "bss_transition"))))
+         vstate->btm = atoi(p);
++    if ((vstate->mcast2ucast_exists = (p = ini_geta(conf, "multicast_to_unicast"))))
++        vstate->mcast2ucast = atoi(p);
+     if ((vstate->rrm_exists = (p = ini_geta(conf, "rrm_neighbor_report"))))
+         vstate->rrm = atoi(p);
+     if ((p = ini_geta(conf, "multi_ap")))

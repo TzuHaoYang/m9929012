@@ -1,0 +1,46 @@
+diff -urN a/platform/cfg80211/src/lib/bsal/inc/bsal.h b/platform/cfg80211/src/lib/bsal/inc/bsal.h
+--- a/platform/cfg80211/src/lib/bsal/inc/bsal.h 2021-06-25 18:28:13.512451004 +0530
++++ b/platform/cfg80211/src/lib/bsal/inc/bsal.h   2021-06-25 18:29:29.064448830 +0530
+@@ -53,6 +53,8 @@
+     uint64_t                rx_bytes;
+     uint8_t                 snr_lwm_xing;
+     uint8_t                 snr_hwm_xing;
++    uint8_t                 rssi_probe_hwm;
++    uint8_t                 rssi_probe_lwm;
+     enum xing_level         xing_level;
+     ds_dlist_node_t         node;
+ } bsal_cli_info;
+diff -urN a/platform/cfg80211/src/lib/bsal/src/bsal.c b//platform/cfg80211/src/lib/bsal/src/bsal.c
+--- a/platform/cfg80211/src/lib/bsal/src/bsal.c 2021-06-25 18:34:34.032440054 +0530
++++ b/platform/cfg80211/src/lib/bsal/src/bsal.c   2021-06-25 18:44:53.648422224 +0530
+@@ -772,7 +772,8 @@
+     const char      *v;
+     bsal_event_t    event;
+     os_macaddr_t    bssid;
+-
++    bsal_cli_info   *client;
++
+     memset(&event, 0, sizeof(event));
+
+     event.type = BSAL_EVENT_PROBE_REQ;
+@@ -794,7 +795,10 @@
+                     memcpy(&event.data.probe_req.client_addr, &bssid, sizeof(event.data.probe_req.client_addr));
+         }
+     }
+-    event.data.probe_req.blocked = false;
++
++    client = bsal_get_client(event.ifname, event.data.probe_req.client_addr);
++    if (client)
++        event.data.probe_req.blocked = (client->rssi_probe_hwm == BM_CLIENT_MAGIC_HWM) ? true : false;
+
+     LOGI("%s: bsal event.type:%d probe_req.rssi:%d probe_req.ssid_null:%d " PRI(os_macaddr_t),
+          __func__, event.type, event.data.probe_req.rssi, event.data.probe_req.ssid_null,
+@@ -901,6 +905,8 @@
+     if (client) {
+         client->snr_lwm_xing = conf->rssi_low_xing;
+         client->snr_hwm_xing = conf->rssi_high_xing;
++        client->rssi_probe_hwm = conf->rssi_probe_hwm;
++        client->rssi_probe_lwm = conf->rssi_probe_lwm;
+         LOGT("%s: station "PRI(os_macaddr_t)" - xing low=%d high=%d updated",
+              __func__, FMT(os_macaddr_t, client->mac_addr),
+              client->snr_lwm_xing, client->snr_hwm_xing);

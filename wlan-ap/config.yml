@@ -1,0 +1,7 @@
+repo: https://github.com/openwrt/openwrt.git
+branch: openwrt-19.07
+revision: 8c191712558ce945993982b03abc5ce80e0fe230
+output_dir: ./output
+
+patch_folders:
+  - patches/

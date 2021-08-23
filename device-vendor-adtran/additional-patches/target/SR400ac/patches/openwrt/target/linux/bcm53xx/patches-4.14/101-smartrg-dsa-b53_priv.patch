@@ -1,0 +1,18 @@
+From: Tim Hayes <tim.hayes@smartrg.com>
+Date: Tue, 31 Dec 2019 12:26:10 -0800
+Subject: [PATCH] OWRT-4719 b53_priv patch
+
+---
+
+diff --git a/drivers/net/dsa/b53/b53_priv.h b/drivers/net/dsa/b53/b53_priv.h
+index 6b9e39d..ce1880e 100644
+--- a/drivers/net/dsa/b53/b53_priv.h
++++ b/drivers/net/dsa/b53/b53_priv.h
+@@ -184,6 +184,7 @@ static inline int is58xx(struct b53_device *dev)
+ 		dev->chip_id == BCM7278_DEVICE_ID;
+ }
+ 
++#define B53_WAN_PORT 	4
+ #define B53_CPU_PORT_25	5
+ #define B53_CPU_PORT	8
+ 

@@ -1,0 +1,1076 @@
+--- a/interfaces/opensync_stats.proto
++++ b/interfaces/opensync_stats.proto
+@@ -146,6 +146,13 @@ enum DiffType {
+     REMOVED                                 = 1;
+ }
+ 
++enum StreamingVideoType {
++	UNKNOWN = 0;
++	NETFLIX = 1;
++	YOUTUBE = 2;
++	PLEX = 3;
++}
++
+ ////////////////////////////////////////////////////////////////////////////////
+ //
+ // Neighbor report: Report contains OBSS neighbor nodes/beacons retreived from
+@@ -543,6 +550,120 @@ message NetworkProbe {
+     repeated RADIUSMetrics  radius_probe = 3;
+     optional uint64         timestamp_ms = 4;
+ }
++
++////////////////////////////////////////////////////////////////////////////////
++//
++// Voice and Video Stats
++//
++// - Contains voice/video detection information
++//
++////////////////////////////////////////////////////////////////////////////////
++message RtpFlowStats {
++	enum RtpFlowDirection {
++		RTP_UPSTREAM = 0;
++		RTP_DOWNSTREAM = 1;
++	}
++
++	enum RtpFlowType {
++		RTP_VOICE = 0;
++		RTP_VIDEO = 1;
++	}
++
++	optional RtpFlowDirection direction = 1;
++	optional RtpFlowType rtp_flow_type = 2;
++	optional uint32 latency = 3;
++	optional uint32 jitter = 4;
++	optional uint32 packet_loss_percent = 5;
++	optional uint32 packet_loss_consec = 6;
++	optional uint32 codec = 7;
++	optional uint32 mosx_100 = 8;
++	optional bytes block_codecs = 9;
++	optional uint32 total_packets_sent = 10;
++	optional uint32 total_packets_lost = 11;
++	optional uint32 rtp_seq_first = 12;
++	optional uint32 rtp_seq_last = 13;
++	optional uint32 stats_idx = 14;
++}
++
++message CallStart {
++	optional uint64 session_id = 1;
++	optional uint64 wifi_session_id = 2;
++	optional bytes client_mac = 3;
++	repeated string codecs = 4;
++	optional string provider_domain = 5;
++	optional string device_info = 6;
++}
++
++message CallStop {
++	enum CallStopReason {
++		BYE_OK = 0;
++		CALL_DROPPED = 1;
++	}
++
++	optional uint64 session_id = 1;
++	optional uint64 wifi_session_id = 2;
++	optional bytes client_mac = 3;
++	optional CallStopReason reason = 4;
++	optional uint32 call_duration = 5;
++	repeated RtpFlowStats stats = 6;
++}
++
++message CallReport {
++	enum CallReportReason {
++		ROAMED_FROM = 0;
++		ROAMED_TO = 1;
++		GOT_PUBLISH = 2;
++	}
++
++	optional uint64 session_id = 1;
++	optional uint64 wifi_session_id = 2;
++	optional bytes client_mac = 3;
++	repeated RtpFlowStats stats = 4;
++	optional CallReportReason reason = 5;
++}
++
++message StreamingVideoDetectPattern {
++	optional string dns_lookup_pattern = 1; // DNS name pattern for detection (like *.nflxvideo.net)
++	optional StreamingVideoType video_type = 2;
++}
++
++message StreamingVideoSessionStart {
++	optional uint64 video_session_id = 1;
++	optional uint64 session_id = 2;
++	optional bytes client_mac = 3;
++	optional bytes server_ip = 4;
++	optional StreamingVideoType streaming_video_type = 5;
++}
++
++message StreamingVideoServerDetected {
++	optional uint64 video_session_id = 1;
++	optional uint64 session_id = 2;
++	optional bytes client_mac = 3;
++	optional bytes server_ip = 4;
++	optional string server_dns_name = 5;
++	optional StreamingVideoType streaming_video_type = 6;
++}
++
++message StreamingVideoStop {
++	optional uint64 video_session_id = 1;
++	optional uint64 session_id = 2;
++	optional bytes client_mac = 3;
++	optional bytes server_ip = 4;
++	optional uint64 total_bytes = 5;
++	optional StreamingVideoType streaming_video_type = 6;
++	optional uint32 duration_sec = 7;
++}
++
++message VideoVoiceReport {
++	optional CallStart call_start = 1;
++	optional CallStop call_stop = 2;
++	optional CallReport call_report = 3;
++	optional StreamingVideoStop stream_video_stop = 4;
++	optional StreamingVideoServerDetected stream_video_server = 5;
++	optional StreamingVideoSessionStart stream_video_session_start = 6;
++	optional uint64 timestamp_ms = 7;
++}
++
+ ////////////////////////////////////////////////////////////////////////////////
+ //
+ // Overall report that might contain all individual stats reports
+@@ -557,5 +678,6 @@ message Report {
+     repeated Device         device          = 6;
+     repeated BSReport       bs_report       = 7;
+     repeated RssiReport     rssi_report     = 8;
++    repeated VideoVoiceReport video_voice_report = 9;
+     repeated NetworkProbe   network_probe   = 101;
+ }
+--- a/src/lib/datapipeline/inc/dpp_types.h
++++ b/src/lib/datapipeline/inc/dpp_types.h
+@@ -464,4 +464,30 @@ typedef enum
+     RSSI_SOURCE_NEIGHBOR
+ } rssi_source_t;
+ 
++typedef enum
++{
++    BYE_OK = 0,
++    CALL_DROPPED = 1
++} sipcall_stopreason_t;
++
++typedef enum
++{
++    RTP_UPSTREAM = 0,
++    RTP_DOWNSTREAM = 1
++} rtp_flow_direction_t;
++
++typedef enum
++{
++    RTP_VOICE = 0,
++    RTP_VIDEO = 1
++} rtp_flow_type_t;
++
++typedef enum
++{
++    ROAMED_FROM = 0,
++    ROAMED_TO = 1,
++    GOT_PUBLISH = 2
++} sip_call_report_reason_t;
++
++
+ #endif /* DPP_TYPES_H_INCLUDED */
+--- /dev/null
++++ b/src/lib/datapipeline/inc/dpp_ucc.h
+@@ -0,0 +1,83 @@
++/* SPDX-License-Identifier BSD-3-Clause */
++
++#ifndef DPP_UCC_H_INCLUDED
++#define DPP_UCC_H_INCLUDED
++
++#include "ds.h"
++#include "ds_dlist.h"
++
++#include "dpp_types.h"
++
++#define PKT_TYPE_CALL_START         103
++#define PKT_TYPE_CALL_STOP          104
++#define PKT_TYPE_CALL_REPORT        105
++
++typedef struct
++{
++    rtp_flow_direction_t direction;
++    rtp_flow_type_t type;
++    uint32_t latency;
++    uint32_t jitter;
++    uint32_t packet_loss_percent;    // percentage of lost packets
++    uint32_t packet_loss_consec;    // consecutive packet lost
++    uint32_t codec;    // reference to Codec type in Start. 7 bits PT value (RFC3550)
++    uint32_t MOSx100;    // in case MOS is provided by the application
++    char BlockCodecs[10];    // Each byte contains F and block PT, only use when Codec is redundant (RFC2198)
++    uint32_t total_packets_sent;   // ver=401
++    uint32_t total_packets_lost;   // ver=401
++    uint32_t rtp_seq_first;   // ver=401
++    uint32_t rtp_seq_last;   // ver=401
++    uint32_t stats_idx;   // ver=401, indexing stats for the same sessionId and wifiSessionId
++} rtp_flow_stats_t;
++
++
++
++typedef struct
++{
++    uint64_t session_id;
++    uint64_t wifi_session_id;
++    char clt_mac[6];
++    char codecs[15][30];
++    char provider_domain[50];
++    char device_info[10];
++} dpp_ucc_sipcall_start_t;
++
++
++typedef struct
++{
++    uint64_t session_id;
++    uint64_t wifi_session_id;
++    char clt_mac[6];
++    sipcall_stopreason_t reason;
++    uint32_t call_duration;  // call duration in seconds
++    rtp_flow_stats_t stats;
++} dpp_ucc_sipcall_stop_t;
++
++
++typedef struct
++{
++    uint64_t session_id;
++    uint64_t wifi_session_id;
++    char clt_mac[6];
++    rtp_flow_stats_t stats;
++    sip_call_report_reason_t reason;
++} dpp_ucc_sipcall_report_t;
++
++typedef struct
++{
++    dpp_ucc_sipcall_start_t            sip_call_start;
++    dpp_ucc_sipcall_stop_t            sip_call_stop;
++    dpp_ucc_sipcall_report_t          sip_call_report;
++
++} dpp_ucc_record_t;
++
++
++typedef struct
++{
++    dpp_ucc_record_t             record;
++    uint64_t                        timestamp_ms;
++    ds_dlist_t                      list;
++    uint32_t                     type;
++} dpp_ucc_report_data_t;
++
++#endif /* DPP_UCC_H_INCLUDED */
+--- a/src/lib/datapipeline/inc/dppline.h
++++ b/src/lib/datapipeline/inc/dppline.h
+@@ -46,6 +46,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBI
+ #include "dpp_bs_client.h"
+ #include "dpp_rssi.h"
+ #include "dpp_network_probe.h"
++#include "dpp_ucc.h"
+ 
+ #ifdef CONFIG_MANAGER_QM
+ // QM does queue-ing of reports when offline on it's own, so dpp needs
+@@ -107,6 +108,13 @@ bool dpp_put_bs_client(dpp_bs_client_rep
+ bool dpp_put_rssi(dpp_rssi_report_data_t *rpt);
+ 
+ /*
++ * Insert UCC stats into dpp internal queue
++ */
++bool dpp_put_ucc(dpp_ucc_report_data_t * rpt);
++
++
++
++/*
+  * Get the protobuf packed buffer
+  *
+  * This buffer is ready to be send using MQTT
+--- a/src/lib/datapipeline/src/dppline.c
++++ b/src/lib/datapipeline/src/dppline.c
+@@ -43,6 +43,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBI
+ #include "dpp_device.h"
+ #include "dpp_capacity.h"
+ #include "dpp_bs_client.h"
++#include "dpp_ucc.h"
+ 
+ #ifndef TARGET_NATIVE
+ #include "os_types.h"
+@@ -64,6 +65,7 @@ typedef enum
+     DPP_T_BS_CLIENT = 6,
+     DPP_T_RSSI      = 7,
+     DPP_T_NETWORK_PROBE =8,
++    DPP_T_UCC       = 9,
+ } DPP_STS_TYPE;
+ 
+ uint32_t queue_depth;
+@@ -162,6 +164,16 @@ typedef struct dpp_rssi_stats
+     uint64_t                        timestamp_ms;
+ } dppline_rssi_stats_t;
+ 
++typedef struct dpp_ucc_stats
++{
++    dpp_ucc_record_t             record;
++    uint32_t                        qty;
++    uint64_t                        timestamp_ms;
++    uint32_t                     type;
++} dppline_ucc_stats_t;
++
++
++
+ /* DPP stats type, used as element in internal double ds */
+ typedef struct dpp_stats
+ {
+@@ -178,6 +190,7 @@ typedef struct dpp_stats
+         dppline_bs_client_stats_t   bs_client;
+         dppline_rssi_stats_t        rssi;
+         dppline_network_probe_stats_t        network_probe;
++        dppline_ucc_stats_t      ucc;
+     } u;
+ } dppline_stats_t;
+ 
+@@ -234,6 +247,9 @@ static void dppline_free_stat(dppline_st
+             case DPP_T_NETWORK_PROBE:
+                 free(s->u.network_probe.list);
+                 break;
++            case DPP_T_UCC:
++                free(&s->u.ucc.record);
++                break;
+             default:;
+         }
+ 
+@@ -682,6 +698,19 @@ static bool dppline_copysts(dppline_stat
+ 
+            }
+            break;
++        case DPP_T_UCC:
++            {
++                dpp_ucc_report_data_t        *report_data = sts;
++
++                memcpy(&dst->u.ucc.record, &report_data->record,
++                       sizeof(dpp_ucc_record_t));
++
++                dst->u.ucc.timestamp_ms = report_data->timestamp_ms;
++                dst->u.ucc.type = report_data->type;
++		size = sizeof(dpp_ucc_record_t);
++            }
++            break;
++
+         default:
+             LOG(ERR, "Failed to copy %d stats", dst->type);
+             /* do nothing */
+@@ -1931,6 +1960,154 @@ static void dppline_add_stat_bs_client(S
+     }
+ }
+ 
++static void dppline_add_stat_ucc(Sts__Report *r, dppline_stats_t *s)
++{
++    Sts__VideoVoiceReport *sr = NULL;
++    int size = 0;
++    uint32_t i;
++    dppline_ucc_stats_t *ucc = &s->u.ucc;
++
++
++    // increase the number of vivo report
++    r->n_video_voice_report++;
++
++    // allocate or extend the size of vivo
++    r->video_voice_report = realloc(r->video_voice_report,
++            r->n_video_voice_report * sizeof(Sts__VideoVoiceReport*));
++    size += sizeof(Sts__VideoVoiceReport*);
++
++    // allocate new buffer Sts__VideoVoiceReport
++    sr = malloc(sizeof(Sts__VideoVoiceReport));
++    size += sizeof(Sts__VideoVoiceReport);
++    assert(sr);
++    r->video_voice_report[r->n_video_voice_report - 1] = sr;
++    sts__video_voice_report__init(sr);
++
++    sr->timestamp_ms = ucc->timestamp_ms;
++    sr->has_timestamp_ms = true;
++
++    switch (ucc->type)
++    {
++    case PKT_TYPE_CALL_START:
++        /* Call Start report */
++        sr->call_start = malloc(sizeof(*sr->call_start));
++        size += sizeof(*sr->call_start);
++        assert(sr->call_start);
++
++        sts__call_start__init(sr->call_start);
++
++        sr->call_start->session_id = ucc->record.sip_call_start.session_id;
++        sr->call_start->has_session_id = true;
++        sr->call_start->wifi_session_id =
++                                    ucc->record.sip_call_start.wifi_session_id;
++        sr->call_start->has_wifi_session_id = true;
++        sr->call_start->client_mac.data =
++                            malloc(sizeof(ucc->record.sip_call_start.clt_mac));
++
++        size += sizeof(ucc->record.sip_call_start.clt_mac);
++        assert(sr->call_start->client_mac.data);
++        memcpy(sr->call_start->client_mac.data,
++    		&ucc->record.sip_call_start.clt_mac[0],
++    		sizeof(ucc->record.sip_call_start.clt_mac));
++
++        sr->call_start->client_mac.len =
++    		sizeof(ucc->record.sip_call_start.clt_mac);
++        sr->call_start->has_client_mac = true;
++
++        sr->call_start->codecs = malloc(15 * sizeof(*sr->call_start->codecs));
++
++        for (i = 0; i < 15; i++){
++    	sr->call_start->codecs[i] =
++                    malloc(30 * sizeof(**sr->call_start->codecs));
++    	memcpy(sr->call_start->codecs[i],
++                   &ucc->record.sip_call_start.codecs[i][0], 30);
++        }
++
++        size += (15 * sizeof(*sr->call_start->codecs)) +
++    		(30 * sizeof(**sr->call_start->codecs));
++
++        sr->call_start->n_codecs = 15;
++
++        sr->call_start->provider_domain =
++                    malloc(sizeof(ucc->record.sip_call_start.provider_domain));
++
++        size += sizeof(ucc->record.sip_call_start.provider_domain);
++        assert(sr->call_start->provider_domain);
++
++        memcpy(sr->call_start->provider_domain,
++               ucc->record.sip_call_start.provider_domain,
++               sizeof(ucc->record.sip_call_start.provider_domain));
++            break;
++
++    case PKT_TYPE_CALL_STOP:
++        /* Call Stop report */
++        sr->call_stop = malloc(sizeof(*sr->call_stop));
++        size += sizeof(*sr->call_stop);
++        assert(sr->call_stop);
++
++        sts__call_stop__init(sr->call_stop);
++
++        sr->call_stop->session_id = ucc->record.sip_call_stop.session_id;
++        sr->call_stop->has_session_id = true;
++        sr->call_stop->wifi_session_id =
++                                    ucc->record.sip_call_stop.wifi_session_id;
++        sr->call_stop->has_wifi_session_id = true;
++
++        sr->call_stop->client_mac.data =
++        malloc(sizeof(ucc->record.sip_call_stop.clt_mac));
++
++        size += sizeof(ucc->record.sip_call_stop.clt_mac);
++        assert(sr->call_stop->client_mac.data);
++        memcpy(sr->call_stop->client_mac.data,
++    		&ucc->record.sip_call_stop.clt_mac[0],
++    		sizeof(ucc->record.sip_call_stop.clt_mac));
++
++        sr->call_stop->client_mac.len =
++    		sizeof(ucc->record.sip_call_stop.clt_mac);
++        sr->call_stop->has_client_mac = true;
++
++        sr->call_stop->reason = ucc->record.sip_call_stop.reason;
++        sr->call_stop->has_reason = true;
++            break;
++
++    case PKT_TYPE_CALL_REPORT:
++        /* Call report */
++        sr->call_report = malloc(sizeof(*sr->call_report));
++        size += sizeof(*sr->call_report);
++        assert(sr->call_report);
++
++        sts__call_report__init(sr->call_report);
++
++        sr->call_report->session_id = ucc->record.sip_call_report.session_id;
++        sr->call_report->has_session_id = true;
++
++        sr->call_report->wifi_session_id =
++                                ucc->record.sip_call_report.wifi_session_id;
++        sr->call_report->has_wifi_session_id = true;
++
++        sr->call_report->client_mac.data =
++        malloc(sizeof(ucc->record.sip_call_report.clt_mac));
++
++        size += sizeof(ucc->record.sip_call_report.clt_mac);
++        assert(sr->call_report->client_mac.data);
++        memcpy(sr->call_report->client_mac.data,
++               &ucc->record.sip_call_report.clt_mac[0],
++               sizeof(ucc->record.sip_call_report.clt_mac));
++
++        sr->call_report->client_mac.len =
++    		sizeof(ucc->record.sip_call_report.clt_mac);
++        sr->call_report->has_client_mac = true;
++
++        sr->call_report->reason = ucc->record.sip_call_report.reason;
++        sr->call_report->has_reason = true;
++        break;
++
++    default:
++        break;
++    }
++}
++
++
+ Sts__RssiPeer__RssiSource dppline_to_proto_rssi_source(rssi_source_t rssi_source)
+ {
+     switch (rssi_source)
+@@ -2089,6 +2266,10 @@ static void dppline_add_stat(Sts__Report
+             dppline_add_stat_network_probe(r, s);
+             break;
+ 
++        case DPP_T_UCC:
++            dppline_add_stat_ucc(r, s);
++            break;
++
+         default:
+             LOG(ERR, "Failed to add %d to stats report", s->type);
+             /* do nothing       */
+@@ -2253,6 +2434,14 @@ bool dpp_put_network_probe(dpp_network_p
+ }
+ 
+ /*
++ * Put Video/voice stats to internal queue
++ */
++bool dpp_put_ucc(dpp_ucc_report_data_t * rpt)
++{
++    return dppline_put(DPP_T_UCC, rpt);
++}
++
++/*
+  * Create the protobuf buff and copy it to given buffer
+  */
+ #ifndef DPP_FAST_PACK
+@@ -2261,7 +2450,7 @@ bool dpp_get_report(uint8_t * buff, size
+     ds_dlist_iter_t iter;
+     dppline_stats_t *s;
+     bool ret = false;
+-    size_t tmp_packed_size; /* packed size of current report */
++    size_t tmp_packed_size = 0; /* packed size of current report */
+ 
+     /* prevent sending empty reports */
+     if (dpp_get_queue_elements() == 0)
+@@ -2292,6 +2481,8 @@ bool dpp_get_report(uint8_t * buff, size
+         tmp_packed_size = sts__report__get_packed_size(report);
+ 
+         /* check the size, if size too small break the process */
++
++        /* if main buffer size is not enough break */
+         if (sz < tmp_packed_size)
+         {
+             LOG(WARNING, "Packed size: %5zd, buffer size: %5zd ",
+--- /dev/null
++++ b/src/sm/src/nl_ucc.h
+@@ -0,0 +1,136 @@
++/* SPDX-License-Identifier BSD-3-Clause */
++#include <linux/netlink.h>
++
++#ifndef __KERNEL__
++#include <sys/socket.h>
++
++#include <net/if.h>
++
++#include <sys/types.h>
++
++#include <linux/sockios.h>
++
++#include <netlink/socket.h>
++#include <netlink/genl/genl.h>
++#include <netlink/genl/family.h>
++#include <netlink/genl/ctrl.h>
++#include <netlink/msg.h>
++#include <netlink/attr.h>
++#endif
++
++
++#define WC_CAPT_BUF_SIZE        500
++#define PKT_TYPE_CALL_START         103
++#define PKT_TYPE_CALL_STOP          104
++#define PKT_TYPE_CALL_REPORT        105
++
++
++struct wc_capture_buf
++{
++    uint64_t TimeStamp;
++    uint64_t tsInUs;
++    uint64_t SessionId;
++    unsigned int Type;
++    unsigned int From;
++    unsigned int Len;
++    unsigned int Channel;
++    unsigned int Direction;
++    int Rssi;
++    unsigned int DataRate;
++    unsigned int Count;
++    int wifiIf;         // for dhcp
++    char staMac[6];     // for dhcp
++    unsigned char Buffer[WC_CAPT_BUF_SIZE];
++};
++
++struct sip_call_start
++{
++    unsigned long long SessionId;
++    unsigned char CltMac[6];
++    int WifiIf;                                 /* To get WiFi session ID */
++    char Url[50];
++    char Codecs[15][30];
++} __attribute__((packed));
++
++struct sip_call_end
++{
++    unsigned long long SessionId;
++    unsigned char CltMac[6];
++    int WifiIf;                                 /* To get WiFi session ID */
++    unsigned int CltMos;
++    unsigned int Reason;
++    unsigned char Codecs[4];
++    unsigned int Latency;
++    unsigned int Jitter;
++    unsigned int PktLostPerc;
++    unsigned int PktLostCons;
++    unsigned int VideoCodec;
++    unsigned int TotalPktSent;
++    unsigned int TotalPktLost;
++    unsigned int RtpSeqFirst;
++    unsigned int RtpSeqLast;
++    unsigned int SipReportIdx;
++} __attribute__((packed));
++
++
++struct sip_call_report
++{
++    unsigned int Latency;
++    unsigned int Jitter;
++    unsigned int PacketLoss;
++    unsigned int Mos;
++} __attribute__((packed));
++
++
++
++#define WC_CAPT_BUF_SIZE        500
++
++#define GENL_UCC_FAMILY_NAME		"genl_ucc"
++#define GENL_UCC_MCGRP0_NAME		"genl_mcgrp0"
++#define GENL_UCC_MCGRP1_NAME		"genl_mcgrp1"
++#define GENL_UCC_MCGRP2_NAME		"genl_mcgrp2"
++
++enum genl_ucc_multicast_groups {
++	GENL_UCC_MCGRP0,
++	GENL_UCC_MCGRP1,
++	GENL_UCC_MCGRP2,
++};
++
++#define GENL_UCC_MCGRP_MAX		3
++
++static char* genl_ucc_mcgrp_names[GENL_UCC_MCGRP_MAX] = {
++	GENL_UCC_MCGRP0_NAME,
++	GENL_UCC_MCGRP1_NAME,
++	GENL_UCC_MCGRP2_NAME,
++};
++
++enum genl_ucc_attrs {
++	GENL_UCC_ATTR_UNSPEC,		/* Must NOT use element 0 */
++
++	GENL_UCC_ATTR_MSG,
++
++	__GENL_UCC_ATTR__MAX,
++};
++#define GENL_UCC_ATTR_MAX (__GENL_UCC_ATTR__MAX - 1)
++
++
++#define GENL_UCC_ATTR_MSG_MAX		256
++
++enum {
++	GENL_UCC_C_UNSPEC,		/* Must NOT use element 0 */
++	GENL_UCC_C_MSG,
++};
++
++
++
++static struct nla_policy genl_ucc_policy[GENL_UCC_ATTR_MAX+1] = {
++	[GENL_UCC_ATTR_MSG] = {
++		.type = NLA_UNSPEC,
++#ifdef __KERNEL__
++		.len = sizeof(struct wc_capture_buf)
++#else
++		.maxlen = sizeof(struct wc_capture_buf)
++#endif
++	},
++};
++
+--- a/src/sm/src/sm.h
++++ b/src/sm/src/sm.h
+@@ -222,6 +222,13 @@ bool sm_radio_config_enable_fast_scan(
+         radio_entry_t              *radio_cfg);
+ 
+ /******************************************************************************
++ *  UCC definitions
++ *****************************************************************************/
++bool ucc_report_request(sm_stats_request_t *request);
++
++/******************************************************************************/
++
++/******************************************************************************
+  *  SCAN SCHED definitions
+  *****************************************************************************/
+ typedef void (*sm_scan_cb_t)(
+@@ -271,6 +278,7 @@ typedef enum
+     STS_REPORT_DEVICE,
+     STS_REPORT_RSSI,
+     STS_REPORT_NETWORK_PROBE,
++    STS_REPORT_VIDEO_VOICE,
+     STS_REPORT_MAX,
+     STS_REPORT_ERROR = STS_REPORT_MAX
+ } sm_report_type_t;
+--- a/src/sm/src/sm_ovsdb.c
++++ b/src/sm/src/sm_ovsdb.c
+@@ -62,6 +62,7 @@ char *sm_report_type_str[STS_REPORT_MAX]
+     "device",
+     "rssi",
+     "network_probe",
++    "video_voice",
+ };
+ 
+ #ifndef CONFIG_MANAGER_QM
+@@ -347,6 +348,7 @@ bool sm_update_stats_config(sm_stats_con
+             break;
+         case STS_REPORT_DEVICE:
+             sm_device_report_request(&req);
++            ucc_report_request(&req);
+             break;
+         case STS_REPORT_CAPACITY:
+ #ifdef CONFIG_SM_CAPACITY_QUEUE_STATS
+@@ -361,6 +363,9 @@ bool sm_update_stats_config(sm_stats_con
+ 	case STS_REPORT_NETWORK_PROBE:
+ 	sm_network_probe_report_request(&req);
+ 	break;
++        case STS_REPORT_VIDEO_VOICE:
++            ucc_report_request(&req);
++	break;
+         default:
+             return false;
+     }
+--- /dev/null
++++ b/src/sm/src/ucc_report.c
+@@ -0,0 +1,301 @@
++/* SPDX-License-Identifier BSD-3-Clause */
++
++#define _GNU_SOURCE
++#include <unistd.h>
++#include <time.h>
++#include <sys/types.h>
++#include <errno.h>
++#include <stdio.h>
++#include <sys/wait.h>
++#include <stdlib.h>
++#include <stdbool.h>
++#include <unistd.h>
++#include <string.h>
++#include <ev.h>
++#include <fcntl.h>
++#include <libgen.h>
++#include <limits.h>
++
++#include "sm.h"
++#include "dpp_ucc.h"
++#include "nl_ucc.h"
++
++#define MODULE_ID LOG_MODULE_ID_MAIN
++
++/* new part */
++typedef struct
++{
++    bool                            initialized;
++
++    /* Structure containing cloud request timer params */
++    sm_stats_request_t              request;
++    /* Structure pointing to upper layer video/voice storage */
++    dpp_ucc_report_data_t        report;
++
++    /* Reporting start timestamp used for reporting timestamp calculation */
++    uint64_t                        report_ts;
++} sm_ucc_ctx_t;
++
++/* Common place holder for all video/voice stat report contexts */
++static sm_ucc_ctx_t              g_sm_ucc_ctx;
++
++/******************************************************************************
++ *  PROTECTED definitions
++ *****************************************************************************/
++static
++void sm_ucc_report(struct wc_capture_buf *rbuf)
++{
++    sm_ucc_ctx_t *ucc_ctx = &g_sm_ucc_ctx;
++
++    dpp_ucc_report_data_t *report_ctx = &ucc_ctx->report;
++    sm_stats_request_t *request_ctx = &ucc_ctx->request;
++    struct sip_call_start *SipCallStart = NULL;
++    struct sip_call_end *SipCallEnd = NULL;
++    struct sip_call_report *SipCallReport = NULL;
++
++    /* Get ucc stats */
++
++    /* Report_timestamp is base-timestamp + relative start time offset */
++    report_ctx->timestamp_ms =
++        request_ctx->reporting_timestamp - ucc_ctx->report_ts +
++        get_timestamp();
++
++    switch (rbuf->Type)
++    {
++    case PKT_TYPE_CALL_START:
++        report_ctx->type = PKT_TYPE_CALL_START;
++        SipCallStart = (struct sip_call_start *)&rbuf->Buffer[0];
++        report_ctx->record.sip_call_start.clt_mac[0] = rbuf->staMac[0];
++        report_ctx->record.sip_call_start.clt_mac[1] = rbuf->staMac[1];
++        report_ctx->record.sip_call_start.clt_mac[2] = rbuf->staMac[2];
++        report_ctx->record.sip_call_start.clt_mac[3] = rbuf->staMac[3];
++        report_ctx->record.sip_call_start.clt_mac[4] = rbuf->staMac[4];
++        report_ctx->record.sip_call_start.clt_mac[5] = rbuf->staMac[5];
++
++        report_ctx->record.sip_call_start.session_id = SipCallStart->SessionId;
++        memcpy(&(report_ctx->record.sip_call_start.codecs[0][0]),
++               &(SipCallStart->Codecs[0][0]), 450 );
++        memcpy( &(report_ctx->record.sip_call_start.provider_domain[0]),
++               &(SipCallStart->Url[0]), 50 );
++
++	break;
++
++    case PKT_TYPE_CALL_STOP:
++        report_ctx->type = PKT_TYPE_CALL_STOP;
++
++        SipCallEnd = (struct sip_call_end *)&rbuf->Buffer[0];
++
++        report_ctx->record.sip_call_stop.clt_mac[0] = rbuf->staMac[0];
++        report_ctx->record.sip_call_stop.clt_mac[1] = rbuf->staMac[1];
++        report_ctx->record.sip_call_stop.clt_mac[2] = rbuf->staMac[2];
++        report_ctx->record.sip_call_stop.clt_mac[3] = rbuf->staMac[3];
++        report_ctx->record.sip_call_stop.clt_mac[4] = rbuf->staMac[4];
++        report_ctx->record.sip_call_stop.clt_mac[5] = rbuf->staMac[5];
++        report_ctx->record.sip_call_stop.reason = SipCallEnd->Reason;
++
++        report_ctx->record.sip_call_stop.session_id = SipCallEnd->SessionId;
++
++        /* Stats Currently unimplemented */
++        report_ctx->record.sip_call_stop.call_duration = 0;
++        report_ctx->record.sip_call_stop.stats.direction = 0;
++        report_ctx->record.sip_call_stop.stats.type = 0;
++        report_ctx->record.sip_call_stop.stats.latency = 0;
++        report_ctx->record.sip_call_stop.stats.jitter = 0;
++        report_ctx->record.sip_call_stop.stats.packet_loss_percent = 0;
++        report_ctx->record.sip_call_stop.stats.packet_loss_consec = 0;
++        report_ctx->record.sip_call_stop.stats.codec = 0;
++        report_ctx->record.sip_call_stop.stats.MOSx100 = 0;
++        report_ctx->record.sip_call_stop.stats.total_packets_sent = 0;
++        report_ctx->record.sip_call_stop.stats.total_packets_lost = 0;
++        report_ctx->record.sip_call_stop.stats.rtp_seq_first = 0;
++        report_ctx->record.sip_call_stop.stats.rtp_seq_last = 0;
++        report_ctx->record.sip_call_stop.stats.stats_idx = 0;
++	break;
++
++    case PKT_TYPE_CALL_REPORT:
++        report_ctx->type = PKT_TYPE_CALL_REPORT;
++
++        SipCallReport = (struct sip_call_report *)&rbuf->Buffer[0];
++
++        report_ctx->record.sip_call_report.clt_mac[0] = rbuf->staMac[0];
++        report_ctx->record.sip_call_report.clt_mac[1] = rbuf->staMac[1];
++        report_ctx->record.sip_call_report.clt_mac[2] = rbuf->staMac[2];
++        report_ctx->record.sip_call_report.clt_mac[3] = rbuf->staMac[3];
++        report_ctx->record.sip_call_report.clt_mac[4] = rbuf->staMac[4];
++        report_ctx->record.sip_call_report.clt_mac[5] = rbuf->staMac[5];
++        report_ctx->record.sip_call_report.stats.latency = SipCallReport->Latency;
++        report_ctx->record.sip_call_report.stats.jitter = SipCallReport->Jitter;
++        report_ctx->record.sip_call_report.stats.packet_loss_consec = SipCallReport->PacketLoss;
++        report_ctx->record.sip_call_report.stats.MOSx100 = SipCallReport->Mos;
++
++        break;
++    default:
++	break;
++    }
++
++    dpp_put_ucc(report_ctx);
++
++clean:
++
++    SM_SANITY_CHECK_TIME(report_ctx->timestamp_ms,
++                         &request_ctx->reporting_timestamp,
++                         &ucc_ctx->report_ts);
++}
++
++/* Netlink functions */
++static unsigned int mcgroups;		/* Mask of groups */
++
++static void prep_nl_sock(struct nl_sock** nlsock)
++{
++    int family_id, grp_id;
++    unsigned int bit = 0;
++    mcgroups |= 1 << (0); //group 0 Kir-change
++
++    *nlsock = nl_socket_alloc();
++    if(!*nlsock) {
++        fprintf(stderr, "Unable to alloc nl socket!\n");
++        exit(EXIT_FAILURE);
++    }
++
++    /* disable seq checks on multicast sockets */
++    nl_socket_disable_seq_check(*nlsock);
++    nl_socket_disable_auto_ack(*nlsock);
++
++    /* connect to genl */
++    if (genl_connect(*nlsock)) {
++        fprintf(stderr, "Unable to connect to genl!\n");
++        goto exit_err;
++    }
++
++    /* resolve the generic nl family id*/
++    family_id = genl_ctrl_resolve(*nlsock, GENL_UCC_FAMILY_NAME);
++    if(family_id < 0){
++        fprintf(stderr, "Unable to resolve family name!\n");
++        goto exit_err;
++    }
++
++    if (!mcgroups)
++        return;
++
++    while (bit < sizeof(unsigned int)) {
++        if (!(mcgroups & (1 << bit)))
++            goto next;
++
++        grp_id = genl_ctrl_resolve_grp(*nlsock, GENL_UCC_FAMILY_NAME,
++                                        genl_ucc_mcgrp_names[bit]);
++
++        if (grp_id < 0)	{
++            fprintf(stderr, "Unable to resolve group name for %u!\n",
++                    (1 << bit));
++            goto exit_err;
++        }
++        if (nl_socket_add_membership(*nlsock, grp_id)) {
++            fprintf(stderr, "Unable to join group %u!\n",
++                    (1 << bit));
++            goto exit_err;
++        }
++next:
++        bit++;
++    }
++
++    return;
++
++exit_err:
++    nl_socket_free(*nlsock);
++    exit(EXIT_FAILURE);
++}
++
++static int print_rx_msg(struct nl_msg *msg, void* arg)
++{
++	struct nlattr *attr[GENL_UCC_ATTR_MAX+1];
++
++	struct wc_capture_buf *rbuf;
++
++	genlmsg_parse(nlmsg_hdr(msg), 0, attr,
++			GENL_UCC_ATTR_MAX, genl_ucc_policy);
++
++	rbuf =	(struct wc_capture_buf *)nla_data(attr[GENL_UCC_ATTR_MSG]);
++
++	if (!attr[GENL_UCC_ATTR_MSG]) {
++		fprintf(stdout, "Kernel sent empty message!!\n");
++		return NL_OK;
++	}
++
++	sm_ucc_report(rbuf);
++
++	return NL_OK;
++}
++
++static int skip_seq_check(struct nl_msg *msg, void *arg)
++{
++	return NL_OK;
++}
++
++static ev_io ucc_io;
++struct nl_sock *nlsock;
++
++static void nl_event(struct ev_loop *ev, struct ev_io *io, int event)
++{
++    struct nl_cb *cb = NULL;
++    /* prep the cb */
++    cb = nl_cb_alloc(NL_CB_DEFAULT);
++    nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, skip_seq_check, NULL);
++    nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, print_rx_msg, NULL);
++    nl_recvmsgs(nlsock, cb);
++
++    nl_cb_put(cb);
++
++}
++
++void netlink_listen(void) {
++
++    struct ev_loop *ucc_evloop = EV_DEFAULT;
++
++    prep_nl_sock(&nlsock);
++
++    ev_io_init(&ucc_io, nl_event, nlsock->s_fd, EV_READ);
++    ev_io_start(ucc_evloop, &ucc_io);
++
++//    nl_socket_free(nlsock);
++}
++
++/******************************************************************************
++ *  PUBLIC API definitions
++ *****************************************************************************/
++bool ucc_report_request(
++        sm_stats_request_t         *request)
++{
++    sm_ucc_ctx_t *ucc_ctx = &g_sm_ucc_ctx;
++    sm_stats_request_t *request_ctx = &ucc_ctx->request;
++    dpp_ucc_report_data_t *report_ctx = &ucc_ctx->report;
++
++    if (NULL == request) {
++        LOG(ERR,
++            "Initializing ucc reporting "
++            "(Invalid request config)");
++        return false;
++    }
++
++    /* Initialize global stats only once */
++    if (!ucc_ctx->initialized) {
++        memset(request_ctx, 0, sizeof(*request_ctx));
++        memset(report_ctx, 0, sizeof(*report_ctx));
++
++        LOG(INFO,
++            "Initializing ucc reporting");
++
++	netlink_listen();
++
++        ucc_ctx->initialized = true;
++    }
++
++    /* Store and compare every request parameter ...
++       memcpy would be easier but we want some debug info
++     */
++    REQUEST_VAL_UPDATE("ucc", reporting_count, "%d");
++    REQUEST_VAL_UPDATE("ucc", reporting_interval, "%d");
++    REQUEST_VAL_UPDATE("ucc", reporting_timestamp, "%"PRIu64"");
++
++
++    return true;
++}
+--- a/src/sm/unit.mk
++++ b/src/sm/unit.mk
+@@ -44,6 +44,7 @@ UNIT_SRC     += src/sm_radio_config.c
+ UNIT_SRC     += src/sm_scan_schedule.c
+ UNIT_SRC     += src/sm_rssi_report.c
+ UNIT_SRC     += src/sm_network_probe_report.c
++UNIT_SRC     += src/ucc_report.c
+ UNIT_SRC     += src/sm_common.c
+ 
+ ifeq ($(CONFIG_SM_CAPACITY_QUEUE_STATS),y)
+--- a/interfaces/opensync.ovsschema
++++ b/interfaces/opensync.ovsschema
+@@ -4670,7 +4670,8 @@
+                   "device",
+                   "rssi",
+                   "steering",
+-                  "network_probe"
++                  "network_probe",
++                  "video_voice"
+                 ]
+               ]
+             }

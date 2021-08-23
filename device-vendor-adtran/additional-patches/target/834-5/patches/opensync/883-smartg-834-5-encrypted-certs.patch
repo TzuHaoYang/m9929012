@@ -1,0 +1,15 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_nl80211_init.c b/platform/cfg80211/src/lib/target/target_nl80211_init.c
+--- a/platform/cfg80211/src/lib/target/target_nl80211_init.c
++++ b/platform/cfg80211/src/lib/target/target_nl80211_init.c
+@@ -41,8 +41,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ struct ev_loop *target_mainloop;
+ 
++extern bool target_init_vendor(target_init_opt_t opt, struct ev_loop *loop);
+ bool target_init(target_init_opt_t opt, struct ev_loop *loop)
+ {
++    if ((opt == TARGET_INIT_MGR_CM) || (opt ==TARGET_INIT_MGR_QM))
++        target_init_vendor(opt, loop);
+     target_mainloop = loop;
+     if (opt == TARGET_INIT_MGR_SM) {
+         if (nl_sm_init(loop) < 0) {

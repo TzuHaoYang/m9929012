@@ -1,0 +1,30 @@
+diff --git a/package/base-files/files/lib/preinit/83_macaddr b/package/base-files/files/lib/preinit/83_macaddr
+new file mode 100644
+index 0000000000..afe7e35189
+--- /dev/null
++++ b/package/base-files/files/lib/preinit/83_macaddr
+@@ -0,0 +1,24 @@
++#!/bin/sh
++#
++# Set MAC address based on mmcblk in config
++#
++
++BASE_MAC=$(strings /dev/mmcblk0p7 | grep MFG_MAC | awk -F '=' '{print $2}')
++
++set_eth0_mac()
++{
++    mac="$1"
++    if [ "$mac" = "" ]; then
++       return
++    fi
++    ip link set eth0 addr $mac
++    if [ $? -ne 0 ]; then
++       return
++    fi
++}
++
++if [ "$BASE_MAC" != "" ]; then
++    set_eth0_mac "$BASE_MAC"
++fi
++
++

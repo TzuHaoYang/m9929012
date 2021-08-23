@@ -1,0 +1,28 @@
+From: Tim Hayes <tim.hayes@smartrg.com>
+Date: Tue, 31 Dec 2019 12:26:10 -0800
+Subject: [PATCH] OWRT-4719 tag_brcm 64 bytes packet patch
+
+---
+
+diff --git a/net/dsa/tag_brcm.c b/net/dsa/tag_brcm.c
+index de92fc1..94f8025 100644
+--- a/net/dsa/tag_brcm.c
++++ b/net/dsa/tag_brcm.c
+@@ -69,6 +69,17 @@ static struct sk_buff *brcm_tag_xmit(struct sk_buff *skb, struct net_device *dev
+ 		return NULL;
+ 
+ 	skb_push(skb, BRCM_TAG_LEN);
++	/* The Ethernet switch we are interfaced with needs packets to be at
++	 * least 64 bytes (including FCS) otherwise they will be discarded when
++	 * they enter the switch port logic. When Broadcom tags are enabled, we
++	 * need to make sure that packets are at least 68 bytes
++	 * (including FCS and tag) because the length verification is done after
++	 * the Broadcom tag is stripped off the ingress packet.
++	 *
++	 * Let dsa_slave_xmit() free the SKB
++	 */
++	if (__skb_put_padto(skb, ETH_ZLEN + BRCM_TAG_LEN, false))
++		return NULL;
+ 
+ 	memmove(skb->data, skb->data + BRCM_TAG_LEN, 2 * ETH_ALEN);
+ 

@@ -1,0 +1,55 @@
+diff -urN a/package/base-files/files/etc/hotplug.d/button/wps b/package/base-files/files/etc/hotplug.d/button/wps
+--- a/package/base-files/files/etc/hotplug.d/button/wps	1970-01-01 05:30:00.000000000 +0530
++++ b/package/base-files/files/etc/hotplug.d/button/wps	2021-04-13 13:46:14.977190618 +0530
+@@ -0,0 +1,51 @@
++#!/bin/sh
++
++if [ "$BUTTON" != "BTN_1" ]; then
++       exit 0
++fi
++
++# to generate a mfg flag that use for the mechanism that enter mfg mode from normal mode. 
++[ "${ACTION}" = "pressed" ] && touch /tmp/mfg_wps_flag
++
++[ "${ACTION}" = "released" ] || exit 0
++
++echo "WPS Button seen for $SEEN seconds..Activating PBC functionality" > /dev/console
++
++ovsh u Wifi_VIF_Config wps:=true
++WPS_STATUS=$(ovsh s Wifi_VIF_State wps | grep wps | awk '{print $3}')
++
++echo "Checking wps status $WPS_STATUS" > /dev/console
++
++check=1
++
++while [ $check -lt 10 ] && [ "$WPS_STATUS" != "true" ]
++do
++	sleep 5
++	WPS_STATUS=$(ovsh s Wifi_VIF_State wps | grep wps | awk '{print $3}')
++	check=`expr $check + 1`
++done
++
++if [ "$WPS_STATUS" != "true" ]; then
++	echo "WPS could not be enabled" > /dev/console
++	exit 0
++fi
++
++
++
++wifi2dev=$(ovsh s Wifi_VIF_State if_name | grep if_name | awk '{print $3}')
++wifi5dev=$(ovsh s Wifi_VIF_State if_name | grep if_name | awk '{print $5}')
++
++ps | grep wps_server_monitor | grep -v grep &>/dev/null
++if [ $? -eq 0 ]; then
++	echo "WPS Already running. " > /dev/console
++	exit 0
++fi
++
++#enable wps key
++ovsh u Wifi_VIF_Config -w if_name==$wifi2dev wps_pbc_key_id:=key
++ovsh u Wifi_VIF_Config -w if_name==$wifi5dev wps_pbc_key_id:=key
++
++ovsh u Wifi_VIF_Config wps_pbc:=true
++
++/bin/sh /usr/opensync/bin/wps_server_monitor.sh $wifi2dev $wifi5dev &
++

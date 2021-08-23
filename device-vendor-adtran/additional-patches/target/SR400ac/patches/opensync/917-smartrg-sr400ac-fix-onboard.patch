@@ -1,0 +1,136 @@
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -90,6 +90,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBI
+ 
+ #define UTIL_CB_PHY         "phy"
+ #define UTIL_CB_VIF         "vif"
++#define UTIL_CB_VIF_HAPD_RELOAD         "vif_hapd_reload"
+ #define UTIL_CB_KV_KEY      "delayed_update_ifname_list"
+ #define UTIL_CB_DELAY_SEC   1
+ 
+@@ -147,7 +148,7 @@ static int g_num_vconfs;
+ struct channel_status g_chan_status[IEEE80211_CHAN_MAX];
+ 
+ static bool util_radio_country_get(const char *phy, char *country, int country_len);
+-
++static void util_cb_vif_hostapd_reload(const char *vif);
+ /******************************************************************************
+  * Generic helpers
+  *****************************************************************************/
+@@ -1265,6 +1266,25 @@ util_vif_check_home_active(char *vif)
+ 
+     return false;
+ }
++static void
++util_vif_hostapd_reload_home(char *vif)
++{
++    struct hapd *hapd = NULL;
++    char home[32];
++
++    if (strstr(vif, "2")) {
++        STRSCPY(home, "wifi2g");
++        hapd = hapd_lookup(home);
++    } else if (strstr(vif, "5")) {
++        STRSCPY(home, "wifi5g");
++        hapd = hapd_lookup(home);
++    }
++
++    if (hapd) {
++        LOGD("%s: try to reload home vap %s",vif, home);
++        hapd_ctrl_reload(hapd);
++    }
++}
+ /******************************************************************************
+  * Target callback helpers
+  *****************************************************************************/
+@@ -1378,13 +1398,18 @@ util_cb_delayed_update_timer(struct ev_l
+     while ((i = strsep(&q, " ")))
+         if ((type = strsep(&i, ":")) && !strcmp(type, UTIL_CB_PHY) && (ifname = strsep(&i, "")))
+                 util_cb_phy_state_update(ifname);
++
++    q = strdupa(p);
++    while ((i = strsep(&q, " ")))
++        if ((type = strsep(&i, ":")) && !strcmp(type, UTIL_CB_VIF_HAPD_RELOAD) && (ifname = strsep(&i, "")))
++                util_cb_vif_hostapd_reload(ifname);
+ }
+ 
+ static void
+ util_cb_delayed_update(const char *type, const char *ifname)
+ {
+     const struct kvstore *kv;
+-    char buf[512];
++    char buf[512] = {0};
+     char *p;
+     char *i;
+ 
+@@ -1463,6 +1488,14 @@ vif_update:
+ #endif
+ }
+ 
++static void
++util_cb_vif_hostapd_reload(const char *vif)
++{
++     if (!util_vif_is_home(vif) && util_vif_check_home_active(vif)) {
++        LOGD("%s: home ap active, should trigger hostapd reload",vif);
++        util_vif_hostapd_reload_home(vif);
++    }
++}
+ /******************************************************************************
+  * ctrl helpers
+  *****************************************************************************/
+@@ -2475,6 +2508,7 @@ util_nl_parse(const void *buf, unsigned
+     int iwelen;
+     bool created;
+     bool deleted;
++    struct schema_Wifi_VIF_Config vconf;
+ 
+     util_nl_each_msg(buf, hdr, len)
+         if (hdr->nlmsg_type == RTM_NEWLINK ||
+@@ -2494,8 +2528,9 @@ util_nl_parse(const void *buf, unsigned
+             created = (hdr->nlmsg_type == RTM_NEWLINK) && (ifm->ifi_change == ~0U);
+             deleted = (hdr->nlmsg_type == RTM_DELLINK);
+             if ((created || deleted) &&
+-                (access(F("/sys/class/net/%s", ifname), R_OK) == 0))
+-                util_cb_delayed_update(UTIL_CB_VIF, ifname);
++                util_lookup_vconf_by_ifname(&vconf, ifname))
++                if (vconf.enabled)
++                    util_cb_delayed_update(UTIL_CB_VIF, ifname);
+             if (deleted && util_wifi_is_ap_vlan(ifname))
+                 util_cb_delayed_update(UTIL_CB_VIF, ifname);
+         }
+@@ -3133,8 +3168,15 @@ target_vif_config_set2(const struct sche
+             util_vif_config_athnewind(phy);
+         }
+ 
+-        if (!rconf || !vconf->enabled)
++        if (!rconf || !vconf->enabled) {
++            /* Hostapd disable will impact all the vaps on this radio for broadcom driver.
++              * It cause vaps do not sending beacon.
++              * We do this workaround to reload home vap.
++              * It will destroy all the vaps and recreate after vif recalc.
++              */
++            util_cb_delayed_update(UTIL_CB_VIF_HAPD_RELOAD, vif);
+             goto done;
++        }
+ 
+         /* need create home vap first */
+         if (!util_vif_is_home(vif) && !util_vif_check_home_active(vif)) {
+--- a/src/lib/hostap/inc/opensync-hapd.h
++++ b/src/lib/hostap/inc/opensync-hapd.h
+@@ -82,4 +82,5 @@ void hapd_sta_iter(struct hapd *hapd,
+                    void *data);
+ int hapd_wps_activate(struct hapd *hapd);
+ int hapd_wps_cancel(struct hapd *hapd);
++int hapd_ctrl_reload(struct hapd *hapd);
+ #endif /* OPENSYNC_WPAS_H_INCLUDED */
+--- a/src/lib/hostap/src/hapd.c
++++ b/src/lib/hostap/src/hapd.c
+@@ -940,7 +940,7 @@ hapd_ctrl_reload_psk(struct hapd *hapd)
+     return strcmp("OK", HAPD_CLI(hapd, "reload_wpa_psk") ?: "");
+ }
+ 
+-static int
++int
+ hapd_ctrl_reload(struct hapd *hapd)
+ {
+     int err = 0;

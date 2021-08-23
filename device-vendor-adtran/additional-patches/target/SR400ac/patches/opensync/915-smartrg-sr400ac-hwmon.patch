@@ -1,0 +1,14 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/nl80211/src/util.c	2021-05-17 16:55:22.942169372 +0530
++++ b/platform/cfg80211/src/lib/nl80211/src/util.c	2021-05-17 16:56:17.878168117 +0530
+@@ -44,6 +44,10 @@
+         snprintf(path_temp, sizeof(path_temp), "/sys/class/net/%s/device/hwmon/hwmon1/temp1_input", ifname);
+     else if (strcmp(ifname, "wlan2") == 0)
+         snprintf(path_temp, sizeof(path_temp), "/sys/class/net/%s/device/hwmon/hwmon2/temp1_input", ifname);
++    else if (strcmp(ifname, "phy0") == 0)
++        snprintf(path_temp, sizeof(path_temp), "/sys/class/net/%s/device/hwmon/hwmon0/temp1_input", ifname);
++    else if (strcmp(ifname, "phy1") == 0)
++        snprintf(path_temp, sizeof(path_temp), "/sys/class/net/%s/device/hwmon/hwmon1/temp1_input", ifname);
+     else
+         return -EINVAL;
+ 

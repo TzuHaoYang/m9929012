@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+
+NAME=omci
+DESC="OMCLI shut down"
+
+stop_omcli()
+{
+    echo "AdTran WAR for stopping OMCID"
+    OMCLI=$(pgrep adtn-omcid)
+    if [ $? == 0 ] && [ $OMCLI != 0 ];
+    then
+        kill -9 $OMCLI
+    fi
+}
+
+
+case "$1" in
+    start)
+        ;;
+    stop)
+        stop_omcli
+        ;;
+    restart)
+        ;;
+    *)
+        ;;
+esac
+
+exit 0

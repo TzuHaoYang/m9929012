@@ -1,0 +1,23 @@
+diff --git a/include/rootfs.mk b/include/rootfs.mk
+index f2d2494ae2..c9b2ad09ac 100644
+--- a/include/rootfs.mk
++++ b/include/rootfs.mk
+@@ -39,6 +39,8 @@ opkg = \
+   $(STAGING_DIR_HOST)/bin/opkg \
+ 	--offline-root $(1) \
+ 	--force-postinstall \
++	--force-depends \
++	--force-overwrite \
+ 	--add-dest root:/ \
+ 	--add-arch all:100 \
+ 	--add-arch $(if $(ARCH_PACKAGES),$(ARCH_PACKAGES),$(BOARD)):200
+@@ -61,6 +63,9 @@ ifdef CONFIG_CLEAN_IPKG
+ endif
+ 
+ define prepare_rootfs
++	@if [ -d $(BUILD_DIR)/srg-scripts ]; then \
++		$(call file_copy,$(BUILD_DIR)/srg-scripts/files/.,$(1)); \
++	fi
+ 	$(if $(2),@if [ -d '$(2)' ]; then \
+ 		$(call file_copy,$(2)/.,$(1)); \
+ 	fi)

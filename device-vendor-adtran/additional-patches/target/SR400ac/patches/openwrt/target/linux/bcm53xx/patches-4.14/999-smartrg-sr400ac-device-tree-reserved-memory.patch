@@ -1,0 +1,34 @@
+--- a/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
++++ b/arch/arm/boot/dts/bcm4708-smartrg-sr400ac.dts
+@@ -24,6 +24,31 @@
+ 		       0x88000000 0x08000000>;
+ 	};
+ 
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		bootdata_reserved: bootdata@0x8febf000 {
++			no-map;
++			reg = <0x8febf000 0x00001000>;
++		};
++		ramoops_reserved: ramoops1@0x8fec0000 {
++			no-map;
++			compatible = "ramoops";
++			reg = <0x8fec0000 0x00140000>;
++			ftrace-size  = <0x20000>;
++			record-size  = <0x20000>;
++			console-size = <0x20000>;
++			pmsg-size    = <0x80000>;
++	      };
++	};
++
++	bootdata {
++			compatible = "bootdata";
++			memory-region = <&bootdata_reserved>;
++		};
++	
+ 	nand: nand@18028000 {
+ 		nandcs@0 {
+ 			partitions {

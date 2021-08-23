@@ -1,0 +1,42 @@
+From c7af0938ae5ab0c835f1e5602bbb7c8ba1e78f96 Mon Sep 17 00:00:00 2001
+From: Richard Le <rle@plume.com>
+Date: Mon, 3 May 2021 23:14:36 +0800
+Subject: [PATCH 1/8] lib: Fix wrong infomation of bitrate
+
+The value retrived from NL80211_RATE_INFO_BITRATE32 or NL80211_RATE_INFO_BITRATE must be divided by
+10 to get value of Mbps.
+
+Signed-off-by: Richard Le <rle@plume.com>
+---
+ platform/cfg80211/src/lib/nl80211/src/nl80211_client.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c b/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c
+index 1d02583..69febf0 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_client.c
+@@ -128,17 +128,17 @@ static int nl80211_assoclist_recv(struct nl_msg *msg, void *arg)
+             !nla_parse_nested(rinfo, NL80211_RATE_INFO_MAX, sinfo[NL80211_STA_INFO_RX_BITRATE],
+                               rate_policy)) {
+         if (rinfo[NL80211_RATE_INFO_BITRATE32])
+-            client_entry->stats.rate_rx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE32]) * 100;
++            client_entry->stats.rate_rx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE32]) / 10;
+         else if (rinfo[NL80211_RATE_INFO_BITRATE])
+-            client_entry->stats.rate_rx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE]) * 100;
++            client_entry->stats.rate_rx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE]) / 10;
+     }
+     if (sinfo[NL80211_STA_INFO_TX_BITRATE] &&
+             !nla_parse_nested(rinfo, NL80211_RATE_INFO_MAX, sinfo[NL80211_STA_INFO_TX_BITRATE],
+                               rate_policy)) {
+         if (rinfo[NL80211_RATE_INFO_BITRATE32])
+-            client_entry->stats.rate_tx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE32]) * 100;
++            client_entry->stats.rate_tx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE32]) / 10;
+         else if (rinfo[NL80211_RATE_INFO_BITRATE])
+-            client_entry->stats.rate_tx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE]) * 100;
++            client_entry->stats.rate_tx = nla_get_u32(rinfo[NL80211_RATE_INFO_BITRATE]) / 10;
+     }
+     if (sinfo[NL80211_STA_INFO_SIGNAL])
+         client_entry->stats.rssi = (signed char)nla_get_u8(sinfo[NL80211_STA_INFO_SIGNAL]);
+-- 
+2.25.1
+

@@ -1,0 +1,125 @@
+From 0526f0cbf27e6182f71e12d0b8e0847a3adcc810 Mon Sep 17 00:00:00 2001
+From: Tim Hayes <tim.hayes@smartrg.com>
+Date: Fri, 24 Apr 2020 14:30:29 -0700
+Subject: [PATCH] OWRT-4932 added pvid
+
+---
+ net/dsa/tag_brcm.c | 52 ++++++++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 44 insertions(+), 8 deletions(-)
+
+diff --git a/net/dsa/tag_brcm.c b/net/dsa/tag_brcm.c
+index 94f8025..91184d9 100644
+--- a/net/dsa/tag_brcm.c
++++ b/net/dsa/tag_brcm.c
+@@ -12,6 +12,7 @@
+ #include <linux/etherdevice.h>
+ #include <linux/list.h>
+ #include <linux/slab.h>
++#include <linux/if_vlan.h>
+ 
+ #include "dsa_priv.h"
+ 
+@@ -36,7 +37,12 @@
+ #define BRCM_IG_TC_MASK		0x7
+ /* 2nd byte in the tag */
+ #define BRCM_IG_TE_MASK		0x3
+-#define BRCM_IG_TS_SHIFT	7
++#define BRCM_IG_TE_SHIFT	0
++#define BRCM_IG_TE_NE	0
++#define BRCM_IG_TE_UT	1
++#define BRCM_IG_TE_TA	2
++
++
+ /* 3rd byte in the tag */
+ #define BRCM_IG_DSTMAP2_MASK	1
+ #define BRCM_IG_DSTMAP1_MASK	0xff
+@@ -64,6 +70,21 @@ static struct sk_buff *brcm_tag_xmit(struct sk_buff *skb, struct net_device *dev
+ 	struct dsa_slave_priv *p = netdev_priv(dev);
+ 	u16 queue = skb_get_queue_mapping(skb);
+ 	u8 *brcm_tag;
++	struct vlan_ethhdr *vhdr;
++	int port=p->dp->index;
++	int pvid=p->dp->pvid;
++	u16 te=0;
++
++
++	vhdr = (struct vlan_ethhdr *)(skb->data);
++	if (htons(vhdr->h_vlan_proto)==ETH_P_8021Q) {
++		       te=(BRCM_IG_TE_TA << BRCM_IG_TE_SHIFT);
++		       te=0;
++	} else {
++		       te=(BRCM_IG_TE_UT << BRCM_IG_TE_SHIFT);
++	}
++
++	pr_debug("%s:%d DSA dev %s port %d pvid %d te 0x%x\n",__FUNCTION__,__LINE__,skb->dev->name,port,pvid,te);
+ 
+ 	if (skb_cow_head(skb, BRCM_TAG_LEN) < 0)
+ 		return NULL;
+@@ -90,12 +111,12 @@ static struct sk_buff *brcm_tag_xmit(struct sk_buff *skb, struct net_device *dev
+ 	 * deprecated
+ 	 */
+ 	brcm_tag[0] = (1 << BRCM_OPCODE_SHIFT) |
+-		       ((queue & BRCM_IG_TC_MASK) << BRCM_IG_TC_SHIFT);
++		       ((queue & BRCM_IG_TC_MASK) << BRCM_IG_TC_SHIFT) | te;
+ 	brcm_tag[1] = 0;
+ 	brcm_tag[2] = 0;
+ 	if (p->dp->index == 8)
+ 		brcm_tag[2] = BRCM_IG_DSTMAP2_MASK;
+-	brcm_tag[3] = (1 << p->dp->index) & BRCM_IG_DSTMAP1_MASK;
++	brcm_tag[3] = (1 << port) & BRCM_IG_DSTMAP1_MASK;
+ 
+ 	return skb;
+ }
+@@ -106,7 +127,8 @@ static struct sk_buff *brcm_tag_rcv(struct sk_buff *skb, struct net_device *dev,
+ 	struct dsa_switch_tree *dst = dev->dsa_ptr;
+ 	struct dsa_port *cpu_dp = dsa_get_cpu_port(dst);
+ 	struct dsa_switch *ds = cpu_dp->ds;
+-	int source_port;
++	int port;
++	struct vlan_ethhdr *vhdr;
+ 	u8 *brcm_tag;
+ 
+ 	if (unlikely(!pskb_may_pull(skb, BRCM_TAG_LEN)))
+@@ -126,13 +148,13 @@ static struct sk_buff *brcm_tag_rcv(struct sk_buff *skb, struct net_device *dev,
+ 		return NULL;
+ 
+ 	/* Locate which port this is coming from */
+-	source_port = brcm_tag[3] & BRCM_EG_PID_MASK;
++	port = brcm_tag[3] & BRCM_EG_PID_MASK;
+ 
+ 	/* Validate port against switch setup, either the port is totally */
+-	if (source_port >= ds->num_ports || !ds->ports[source_port].netdev)
++	if (port >= ds->num_ports || !ds->ports[port].netdev)
+ 		return NULL;
+ 
+-	if (unlikely(ds->cpu_port_mask & BIT(source_port)))
++	if (unlikely(ds->cpu_port_mask & BIT(port)))
+ 		return NULL;
+ 
+ 	/* Remove Broadcom tag and update checksum */
+@@ -143,7 +165,21 @@ static struct sk_buff *brcm_tag_rcv(struct sk_buff *skb, struct net_device *dev,
+ 		skb->data - ETH_HLEN - BRCM_TAG_LEN,
+ 		2 * ETH_ALEN);
+ 
+-	skb->dev = ds->ports[source_port].netdev;
++	skb->dev = ds->ports[port].netdev;
++
++	/* if this is a vlan tagged packet and if the vlan TCI matches the assigned pvid then strip the tag */
++	vhdr = (struct vlan_ethhdr *)(skb->data-ETH_HLEN);
++	if (ntohs(vhdr->h_vlan_proto)==ETH_P_8021Q) {
++		pr_debug("%s:%d DSA dev %s source port %d pvid %d h_vlan_proto 0x%x h_vlan_TCI 0x%x encap 0x%x \n",__FUNCTION__,__LINE__,
++			skb->dev->name,port,ds->ports[port].pvid,ntohs(vhdr->h_vlan_proto),ntohs(vhdr->h_vlan_TCI),ntohs(vhdr->h_vlan_encapsulated_proto));
++		if ((ntohs(vhdr->h_vlan_TCI) & VLAN_VID_MASK)==ds->ports[port].pvid) {
++			/* Remove vlan tag and update checksum */
++			skb_pull_rcsum(skb, VLAN_HLEN);
++
++			/* Move the Ethernet DA and SA */
++			memmove(skb->data - ETH_HLEN,skb->data - ETH_HLEN - VLAN_HLEN,	2 * ETH_ALEN);
++		}
++	}
+ 
+ 	return skb;
+ }
+-- 
+1.9.1
+

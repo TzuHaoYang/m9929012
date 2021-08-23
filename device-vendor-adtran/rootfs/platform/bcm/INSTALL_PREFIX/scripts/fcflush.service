@@ -1,0 +1,24 @@
+#!/bin/sh
+
+fcflush_start()
+{
+    echo 'Monitoring FlowCache rules'
+    while true
+    do
+            cat /proc/fcache/brlist | tail -n +4 | while read _FLOWID _ _ _ _ _ _ _ _ _ _ PROTO SRC DST _
+            do
+                    [ -n "$PROTO" ] || continue
+                    # Proto 17 UDP
+                    [ "$PROTO" -eq 17 ] || continue
+                    PORT=${SRC#*:}
+                    PORT=${PORT%>}
+                    [ "$PORT" -eq 68 -o "$PORT" -eq 67 ] || continue
+                    FLOWID=${_FLOWID#*@}
+                    fcctl flush --flow $FLOWID
+            done
+            sleep 1
+    done
+}
+
+echo 'Starting FcFlush service'
+fcflush_start | logger -t fcflush

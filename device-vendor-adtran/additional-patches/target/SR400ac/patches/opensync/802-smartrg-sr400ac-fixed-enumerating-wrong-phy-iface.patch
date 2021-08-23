@@ -1,0 +1,48 @@
+---
+ platform/cfg80211/src/lib/target/target_cfg80211.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+index ece72d3..cb4b5e0 100644
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -3220,6 +3220,28 @@ target_radio_init_discover(EV_P_ ev_async *async, int events)
+     DIR *d;
+     struct dirent *p;
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if (!(d = opendir(CONFIG_MAC80211_WIPHY_PATH)))
++        goto vif_update;
++
++    LOGI("enumerating interfaces");
++    for (p = readdir(d); p ; p = readdir(d)) {
++        // Check whether wifi radio interfaces wlanX are already present
++        if (strstr(p->d_name, CONFIG_MAC80211_WIPHY_PREFIX))
++            util_cb_delayed_update(UTIL_CB_PHY, p->d_name);
++    }
++    closedir(d);
++
++vif_update:
++    if (!(d = opendir("/sys/class/net")))
++        return -1;
++
++    for (p = readdir(d); p ; p = readdir(d)) {
++        // Check whether wifi vif interfaces are already present
++        if (access(F("/sys/class/net/%s/phy80211/name", p->d_name), F_OK) == 0)
++            util_cb_delayed_update(UTIL_CB_VIF, p->d_name);
++    }
++#else
+     if (!(d = opendir("/sys/class/net")))
+         return -1;
+ 
+@@ -3232,6 +3254,7 @@ target_radio_init_discover(EV_P_ ev_async *async, int events)
+         else if (access(F("/sys/class/net/%s/phy80211/name", p->d_name), F_OK) == 0)
+             util_cb_delayed_update(UTIL_CB_VIF, p->d_name);
+     }
++#endif
+ 
+     closedir(d);
+ 
+-- 
+2.25.1
+

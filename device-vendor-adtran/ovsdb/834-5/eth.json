@@ -1,0 +1,73 @@
+[
+    "Open_vSwitch",
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "lan0",
+            "ip_assign_scheme": "none",
+            "if_type": "eth",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": false
+        }
+    },
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "lan1",
+            "ip_assign_scheme": "none",
+            "if_type": "eth",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": false
+        }
+    },
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "lan2",
+            "ip_assign_scheme": "none",
+            "if_type": "eth",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": false
+        }
+    },
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "lan3",
+            "ip_assign_scheme": "none",
+            "if_type": "eth",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": false
+        }
+    },
+    {
+        "op":"insert",
+        "table":"Wifi_Inet_Config",
+        "row":
+        {
+            "if_name": "wan",
+            "ip_assign_scheme": "none",
+            "if_type": "eth",
+            "enabled": true,
+            "network": true,
+            "mtu": 1500,
+            "NAT": false
+        }
+    }
+]

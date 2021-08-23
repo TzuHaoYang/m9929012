@@ -1,0 +1,57 @@
+#!/bin/sh -e
+INSTALL_PREFIX=/usr/opensync
+
+START=60
+
+PID_FILE_PREFIX=/var/run/udhcpc.pid
+INTERFACES="eth0"
+VLAN=4
+
+start()
+{
+    for IF in $INTERFACES
+    do
+        VIF=$IF.$VLAN
+
+        test -e /sys/class/net/$IF || continue
+
+        ifconfig $IF up
+        if [ ! -d /sys/class/net/$VIF ]; then
+            #vlanctl --if-create-name $IF $IF.0
+            #vlanctl --if $IF --rx --tags 0 --set-rxif $IF.0 --rule-append
+            #vlanctl --if $IF --tx --tags 0 --filter-txif $IF.0 --rule-append
+            #ifconfig $IF.0 up
+
+            vlanctl --if-create-name $IF $VIF
+            vlanctl --if $IF --rx --tags 1 --filter-vid $VLAN 0 --pop-tag --set-rxif $VIF --rule-append
+            vlanctl --if $IF --tx --tags 0 --filter-txif $VIF  --push-tag --set-vid $VLAN 0 --rule-append
+            ifconfig $VIF up
+
+            vlanctl --if $IF --set-if-mode-rg
+        fi
+
+        start-stop-daemon -K -x /sbin/udhcpc -p $PID_FILE_PREFIX.$VIF -t || \
+        start-stop-daemon -S -x /sbin/udhcpc -p $PID_FILE_PREFIX.$VIF -b -m -- -s ${INSTALL_PREFIX}/bin/udhcpc.sh -f -S -i $VIF -C -o -O subnet
+    done
+}
+
+stop()
+{
+    for IF in $INTERFACES
+    do
+        VIF=$IF.$VLAN
+        test -e /sys/class/net/$IF || continue
+
+        ! start-stop-daemon -K -x /sbin/udhcpc -p $PID_FILE_PREFIX.$VIF -t || \
+        start-stop-daemon -K -x /sbin/udhcpc -p $PID_FILE_PREFIX.$VIF
+
+        ! test -d /sys/class/net/$VIF || vlanctl --if-delete $VIF
+    done
+}
+
+case "$1" in
+    boot) start ;;
+    start) start ;;
+    stop) stop ;;
+    *) exit 1 ;;
+esac

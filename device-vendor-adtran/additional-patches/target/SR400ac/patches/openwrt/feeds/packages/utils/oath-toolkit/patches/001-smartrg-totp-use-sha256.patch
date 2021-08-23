@@ -1,0 +1,58 @@
+Index: oath-toolkit-2.6.2/liboath/totp.c
+===================================================================
+--- oath-toolkit-2.6.2.orig/liboath/totp.c
++++ oath-toolkit-2.6.2/liboath/totp.c
+@@ -68,7 +68,7 @@ oath_totp_generate (const char *secret,
+ 		    time_t start_offset, unsigned digits, char *output_otp)
+ {
+   return oath_totp_generate2 (secret, secret_length, now, time_step_size,
+-			      start_offset, digits, 0, output_otp);
++			      start_offset, digits, OATH_TOTP_HMAC_SHA256, output_otp);
+ }
+ 
+ /**
+@@ -221,7 +221,7 @@ oath_totp_validate_callback (const char
+ {
+   return oath_totp_validate4_callback (secret, secret_length, now,
+ 				       time_step_size, start_offset,
+-				       digits, window, NULL, NULL, 0,
++				       digits, window, NULL, NULL, OATH_TOTP_HMAC_SHA256,
+ 				       strcmp_otp, strcmp_handle);
+ }
+ 
+@@ -259,7 +259,7 @@ oath_totp_validate2 (const char *secret,
+   return oath_totp_validate4_callback (secret, secret_length, now,
+ 				       time_step_size, start_offset,
+ 				       strlen (otp), window, otp_pos,
+-				       NULL, 0, _oath_strcmp_callback,
++				       NULL, OATH_TOTP_HMAC_SHA256, _oath_strcmp_callback,
+ 				       (void *) otp);
+ }
+ 
+@@ -321,7 +321,7 @@ oath_totp_validate2_callback (const char
+   return oath_totp_validate4_callback (secret, secret_length, now,
+ 				       time_step_size, start_offset,
+ 				       digits, window, otp_pos, NULL,
+-				       0, strcmp_otp, strcmp_handle);
++				       OATH_TOTP_HMAC_SHA256, strcmp_otp, strcmp_handle);
+ }
+ 
+ /**
+@@ -360,7 +360,7 @@ oath_totp_validate3 (const char *secret,
+   return oath_totp_validate4_callback (secret, secret_length, now,
+ 				       time_step_size, start_offset,
+ 				       strlen (otp), window, otp_pos,
+-				       otp_counter, 0, _oath_strcmp_callback,
++				       otp_counter, OATH_TOTP_HMAC_SHA256, _oath_strcmp_callback,
+ 				       (void *) otp);
+ }
+ 
+@@ -424,7 +424,7 @@ oath_totp_validate3_callback (const char
+   return oath_totp_validate4_callback (secret, secret_length, now,
+ 				       time_step_size, start_offset,
+ 				       digits, window, otp_pos,
+-				       otp_counter, 0, strcmp_otp,
++				       otp_counter, OATH_TOTP_HMAC_SHA256, strcmp_otp,
+ 				       strcmp_handle);
+ }
+ 

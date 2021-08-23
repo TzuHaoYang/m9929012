@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# Delayed reboot helper script used by DM
+#
+
+DM_REBOOT_GUARD="/FLASH/persist/dm_reboot_guard"
+OSP_REBOOT_REASON="/FLASH/persist/osp_reboot_reason"
+[ $# -gt 2 ] && exit 1
+
+if [ "$2" == "CLOUD" ]; then
+   echo "REBOOT CLOUD" > $OSP_REBOOT_REASON
+else
+   echo "REBOOT USER" > $OSP_REBOOT_REASON
+fi
+rm -rf $DM_REBOOT_GUARD
+
+/bin/sleep $1
+/sbin/reboot

@@ -1,0 +1,104 @@
+diff -urN a/package/base-files/files/etc/hotplug.d/button/reset b/package/base-files/files/etc/hotplug.d/button/reset
+--- a/package/base-files/files/etc/hotplug.d/button/reset 1970-01-01 05:30:00.000000000 +0530
+++ b/package/base-files/files/etc/hotplug.d/button/reset 2021-05-31 14:47:56.466727041 +0530
+@@ -0,0 +1,31 @@
++#!/bin/sh
++
++. /lib/functions.sh
++
++OVERLAY="$( grep ' /overlay ' /proc/mounts )"
++
++case "$ACTION" in
++pressed)
++       [ -z "$OVERLAY" ] && return 0
++
++       return 5
++;;
++timeout)
++       . /etc/diag.sh
++       set_state failsafe
++;;
++released)
++       if [ "$SEEN" -lt 1 ]
++       then
++               echo "REBOOT" > /dev/console
++               sync
++               reboot
++       elif [ "$SEEN" -ge 5 -a -n "$OVERLAY" ]
++       then
++               echo "FACTORY RESET" > /dev/console
++               jffs2reset -y && reboot &
++       fi
++;;
++esac
++
++return 0
++
+
+diff -urN a/package/base-files/files/etc/hotplug.d/button/wps a/package/base-files/files/etc/hotplug.d/button/wps
+--- a/package/base-files/files/etc/hotplug.d/button/wps	1970-01-01 05:30:00.000000000 +0530
+++ b/package/base-files/files/etc/hotplug.d/button/wps	2021-05-27 18:21:50.594324565 +0530
+@@ -0,0 +1,51 @@
++#!/bin/sh
++
++if [ "$BUTTON" != "wps" ]; then
++       exit 0
++fi
++
++# to generate a mfg flag that use for the mechanism that enter mfg mode from normal mode. 
++[ "${ACTION}" = "pressed" ] && touch /tmp/mfg_wps_flag
++
++[ "${ACTION}" = "released" ] || exit 0
++
++echo "WPS Button seen for $SEEN seconds..Activating PBC functionality" > /dev/console
++
++ovsh u Wifi_VIF_Config wps:=true
++WPS_STATUS=$(ovsh s Wifi_VIF_State wps | grep wps | awk '{print $3}')
++
++echo "Checking wps status $WPS_STATUS" > /dev/console
++
++check=1
++
++while [ $check -lt 10 ] && [ "$WPS_STATUS" != "true" ]
++do
++	sleep 5
++	WPS_STATUS=$(ovsh s Wifi_VIF_State wps | grep wps | awk '{print $3}')
++	check=`expr $check + 1`
++done
++
++if [ "$WPS_STATUS" != "true" ]; then
++	echo "WPS could not be enabled" > /dev/console
++	exit 0
++fi
++
++
++
++wifi2dev=$(ovsh s Wifi_VIF_State if_name | grep if_name | awk '{print $3}')
++wifi5dev=$(ovsh s Wifi_VIF_State if_name | grep if_name | awk '{print $5}')
++
++ps | grep wps_server_monitor | grep -v grep &>/dev/null
++if [ $? -eq 0 ]; then
++	echo "WPS Already running. " > /dev/console
++	exit 0
++fi
++
++#enable wps key
++ovsh u Wifi_VIF_Config -w if_name==$wifi2dev wps_pbc_key_id:=key
++ovsh u Wifi_VIF_Config -w if_name==$wifi5dev wps_pbc_key_id:=key
++
++ovsh u Wifi_VIF_Config wps_pbc:=true
++
++/bin/sh /usr/opensync/bin/wps_server_monitor.sh $wifi2dev $wifi5dev &
++
+
+diff -urN a/package/kernel/mac80211/files/lib/wifi/mac80211.sh b/package/kernel/mac80211/files/lib/wifi/mac80211.sh
+--- a/package/kernel/mac80211/files/lib/wifi/mac80211.sh	2021-05-25 14:54:25.742553972 +0530
+++ b/package/kernel/mac80211/files/lib/wifi/mac80211.sh	2021-05-28 11:35:15.652908901 +0530
+@@ -108,6 +108,7 @@
+ 			set wireless.radio${devidx}.type=mac80211
+ 			set wireless.radio${devidx}.channel=${channel}
+ 			set wireless.radio${devidx}.hwmode=11${mode_band}
++			set wireless.radio${devidx}.wps_pushbutton=1
+ 			${dev_id}
+ 			${ht_capab}
+ 			set wireless.radio${devidx}.disabled=1

@@ -1,0 +1,367 @@
+From 8f0581d876a7b22eddc1d324c9702d7789694b8f Mon Sep 17 00:00:00 2001
+From: Kenneth Lu <klu@plume.com>
+Date: Wed, 21 Apr 2021 20:05:47 +0800
+Subject: [PATCH] lib: PLATFORM_MAC80211 patches for WM
+
+The searching path of softMAC was different from FullMAC driver, this
+patch set was changed the phy/vif search path for WM to configure wifi
+setting via ovsdb.
+
+Signed-off-by: Kenneth Lu <klu@plume.com>
+---
+ platform/cfg80211/kconfig/Kconfig.platform             |  17 +++++
+ platform/cfg80211/src/lib/nl80211/src/nl80211_target.c |  16 +++-
+ platform/cfg80211/src/lib/target/target_cfg80211.c     | 110 ++++++++++++++++++++++++++-
+ platform/cfg80211/src/lib/target/wiphy_info.c          |  18 +++--
+ 4 files changed, 152 insertions(+), 9 deletions(-)
+ create mode 100644 kconfig/Kconfig.platform
+
+diff --git a/platform/cfg80211/kconfig/Kconfig.platform b/platform/cfg80211/kconfig/Kconfig.platform
+new file mode 100644
+index 0000000..50be14f
+--- /dev/null
++++ b/platform/cfg80211/kconfig/Kconfig.platform
+@@ -0,0 +1,13 @@
++config PLATFORM_MAC80211
++    bool "MAC80211 interface layer"
++    default n
++    help
++        Enable MAC80211 interface layer
++
++config MAC80211_WIPHY_PREFIX
++    string "mac80211 wiphy prefix"
++    default "phy"
++
++config MAC80211_WIPHY_PATH
++    string "mac80211 wiphy path"
++    default "/sys/class/ieee80211"
+diff --git a/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c b/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c
+index 859011b..8b38146 100644
+--- a/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c
++++ b/platform/cfg80211/src/lib/nl80211/src/nl80211_target.c
+@@ -286,11 +286,16 @@ int nl_req_get_channels(struct nl_global_info *nl_global,
+     if (!nl_global)
+         return -EINVAL;
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if ((phy_idx = util_sys_phyname_to_idx(ifname)) < 0)
++	return -EINVAL;
++#else
+     if ((if_idx = util_sys_ifname_to_idx(ifname)) < 0)
+         return -EINVAL;
+ 
+     if ((phy_idx = nl_req_get_iface_phy_idx(nl_global, if_idx)) < 0)
+         return -EINVAL;
++#endif
+ 
+     msg = nlmsg_init(nl_global, NL80211_CMD_GET_WIPHY, true);
+     if (!msg) return -ENOMEM;
+@@ -438,11 +443,16 @@ int nl_req_add_iface(struct nl_global_info *nl_global,
+     if (mode_to_nl80211_attr_iftype(mode, &iftype) < 0)
+         return -EINVAL;
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if ((phy_idx = util_sys_phyname_to_idx(r_ifname)) < 0)
++        return -EINVAL;
++#else
+     if ((iface_index = util_sys_ifname_to_idx(r_ifname)) < 0)
+         return -EINVAL;
+ 
+     if ((phy_idx = nl_req_get_iface_phy_idx(nl_global, iface_index)) < 0)
+         return -EINVAL;
++#endif
+ 
+     msg = nlmsg_init(nl_global, NL80211_CMD_NEW_INTERFACE, false);
+     nla_put_u32(msg, NL80211_ATTR_WIPHY, phy_idx);
+@@ -546,12 +556,16 @@ int nl_req_get_iface_supp_chan(struct nl_global_info *nl_global, const char *ifn
+ 
+     if (!nl_global)
+         return -EINVAL;
+-
++#ifdef CONFIG_PLATFORM_MAC80211
++    if ((phy_idx = util_sys_phyname_to_idx(ifname)) < 0)
++        return -EINVAL;
++#else
+     if ((iface_index = util_sys_ifname_to_idx(ifname)) < 0)
+         return -EINVAL;
+ 
+     if ((phy_idx = nl_req_get_iface_phy_idx(nl_global, iface_index)) < 0)
+         return -EINVAL;
++#endif
+ 
+     msg = nlmsg_init(nl_global, NL80211_CMD_GET_WIPHY, false);
+     if (!msg)
+diff --git a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+index f45edcd..a21d121 100644
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c
+@@ -652,6 +652,31 @@ util_net_ifname_exists(const char *ifname, int *v)
+     return true;
+ }
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++static bool
++util_net_phy_exists(const char *phy, int *v)
++{
++    char path[128];
++    snprintf(path, sizeof(path), "/sys/class/ieee80211/%s", phy);
++    *v = 0 == access(path, X_OK);
++    return true;
++}
++
++static int
++util_net_get_phy_macaddr_str(const char *phy, char *buf, int len)
++{
++    char path[128];
++    int err;
++    snprintf(path, sizeof(path), "/sys/class/ieee80211/%s/addresses", phy);
++    err = util_file_read_str(path, buf, len);
++    if (err > 0)
++        err = 0;
++    rtrimws(buf);
++    return err;
++}
++#endif
++
++
+ static int
+ util_net_get_macaddr_str(const char *ifname, char *buf, int len)
+ {
+@@ -675,6 +700,11 @@ util_net_get_macaddr(const char *ifname,
+ 
+     memset(macaddr, 0, 6);
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if (!strncmp(ifname, CONFIG_MAC80211_WIPHY_PREFIX, strlen(CONFIG_MAC80211_WIPHY_PREFIX)))
++        err = util_net_get_phy_macaddr_str(ifname, buf, sizeof(buf));
++    else
++#endif
+     err = util_net_get_macaddr_str(ifname, buf, sizeof(buf));
+     if (err) {
+         LOGW("%s: failed to get mac address: %d (%s)",
+@@ -725,6 +755,18 @@ util_wifi_get_phy_any_ap_vif(const char *phy,
+ 
+     memset(buf, 0, len);
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    snprintf(phy_path, sizeof(phy_path), CONFIG_MAC80211_WIPHY_PATH"/%s/device/net", phy);
++    if (!(d = opendir(phy_path)))
++        return -1;
++
++    for (p = readdir(d); p ; p = readdir(d)) {
++        if (p->d_name) {
++            strscpy(buf, p->d_name, len);
++            break;
++        }
++    }
++#else
+     if ((snprintf(phy_path, sizeof(phy_path), "/sys/class/net/%s/phy80211/name", phy) < 0)
+         || (util_file_read_str(phy_path, phy_parent, sizeof(phy_parent)) < 0)
+         || !(rtrimws(phy_parent), 1))
+@@ -744,7 +786,7 @@ util_wifi_get_phy_any_ap_vif(const char *phy,
+             break;
+         }
+     }
+-
++#endif
+     closedir(d);
+ 
+     if (!strlen(buf))
+@@ -767,6 +809,16 @@ util_wifi_get_phy_all_vifs(const char *phy,
+ 
+     memset(buf, 0, len);
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    snprintf(phy_path, sizeof(phy_path), CONFIG_MAC80211_WIPHY_PATH"/%s/device/net", phy);
++    if (!(d = opendir(phy_path)))
++        return -1;
++
++    for (p = readdir(d); p ; p = readdir(d)) {
++        if (p->d_name)
++            snprintf(buf + strlen(buf), len - strlen(buf), "%s ", p->d_name);
++    }
++#else
+     if ((snprintf(phy_path, sizeof(phy_path), "/sys/class/net/%s/phy80211/name", phy) < 0)
+         || (util_file_read_str(phy_path, phy_parent, sizeof(phy_parent)) < 0)
+         || !(rtrimws(phy_parent), 1))
+@@ -781,7 +833,7 @@ util_wifi_get_phy_all_vifs(const char *phy,
+             (rtrimws(sys_parent), 1) &&
+             !strcmp(phy_parent, sys_parent))
+             snprintf(buf + strlen(buf), len - strlen(buf), "%s ", p->d_name);
+-
++#endif
+     closedir(d);
+     return 0;
+ }
+@@ -792,6 +844,14 @@ int util_get_vif_radio(const char *in_vif, char *phy_buf, int len)
+     char vif_list[512];
+     char *vifr = vif_list;
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    char sys_path[128];
++    snprintf(sys_path, sizeof(sys_path), "/sys/class/net/%s/phy80211/name", in_vif);
++    if (util_file_read_str(sys_path, phy_buf, len) < 0)
++        return -1;
++    rtrimws(phy_buf);
++    return 0;
++#else
+     if (util_wifi_get_phy_all_vifs(in_vif, vif_list, sizeof(vif_list))) {
+         LOGE("%s: get vif list failed", in_vif);
+         return -1;
+@@ -807,6 +867,7 @@ int util_get_vif_radio(const char *in_vif, char *phy_buf, int len)
+     }
+ 
+     return -1;
++#endif
+ }
+ 
+ static void
+@@ -884,7 +945,16 @@ util_wifi_get_phy_vifs(const char *phy,
+     DIR *d;
+ 
+     memset(buf, 0, len);
++#ifdef CONFIG_PLATFORM_MAC80211
++    snprintf(path, sizeof(path), CONFIG_MAC80211_WIPHY_PATH"/%s/device/net", phy);
++    if (!(d = opendir(path)))
++        return -1;
+ 
++    for (p = readdir(d); p ; p = readdir(d)) {
++        if (p->d_name)
++            snprintf(buf + strlen(buf), len - strlen(buf), "%s ", p->d_name);
++    }
++#else
+     if (!(d = opendir("/sys/class/net")))
+         return -1;
+ 
+@@ -895,7 +965,7 @@ util_wifi_get_phy_vifs(const char *phy,
+             (rtrimws(parent), 1) &&
+             !strcmp(phy, parent))
+             snprintf(buf + strlen(buf), len - strlen(buf), "%s ", p->d_name);
+-
++#endif
+     closedir(d);
+     return 0;
+ }
+@@ -1009,6 +1079,8 @@ util_get_vif_chan(const char *vif,
+ static int
+ util_get_opmode(const char *vif, char *opmode, int len)
+ {
++    if (vif && strlen(vif) == 0)
++        return 0;
+     if (nl_req_get_mode(&target_nl_global, vif, opmode, len) == true)
+         return 1;
+ 
+@@ -1219,6 +1291,29 @@ util_cb_delayed_update_all(void)
+     struct hapd *hapd;
+     DIR *d;
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if (!(d = opendir("/sys/class/ieee80211")))
++        goto vif_update;
++    for (i = readdir(d); i; i = readdir(d)) {
++	if (strstr(i->d_name, "phy")) {
++	    util_cb_delayed_update(UTIL_CB_PHY, i->d_name);
++	}
++    }
++    closedir(d);
++
++vif_update:
++    if (!(d = opendir("/sys/class/net")))
++        return;
++    for (i = readdir(d); i; i = readdir(d)) {
++	if (0 == util_wifi_get_parent(i->d_name, phy, sizeof(phy))) {
++            hapd = hapd_lookup(i->d_name);
++            if (hapd)
++                hapd_sta_regen(hapd);
++            util_cb_delayed_update(UTIL_CB_VIF, i->d_name);
++        }
++    }
++    closedir(d);
++#else
+     if (!(d = opendir("/sys/class/net")))
+         return;
+     for (i = readdir(d); i; i = readdir(d)) {
+@@ -1232,6 +1327,7 @@ util_cb_delayed_update_all(void)
+         }
+     }
+     closedir(d);
++#endif
+ }
+ 
+ /******************************************************************************
+@@ -2575,10 +2671,18 @@ bool target_radio_state_get(char *phy, struct schema_Wifi_Radio_State *rstate)
+         LOGD("%s: no vifs, some rstate bits will be missing", phy);
+     }
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if ((rstate->mac_exists = (0 == util_net_get_phy_macaddr_str(phy, buf, sizeof(buf)))))
++#else
+     if ((rstate->mac_exists = (0 == util_net_get_macaddr_str(phy, buf, sizeof(buf)))))
++#endif
+         STRSCPY(rstate->mac, buf);
+ 
++#ifdef CONFIG_PLATFORM_MAC80211
++    if ((rstate->enabled_exists = util_net_phy_exists(phy, &v)))
++#else
+     if ((rstate->enabled_exists = util_net_ifname_exists(phy, &v)))
++#endif
+         rstate->enabled = v;
+ 
+     if ((rstate->channel_exists = util_get_phy_chan(phy, &v)))
+diff --git a/platform/cfg80211/src/lib/target/wiphy_info.c b/platform/cfg80211/src/lib/target/wiphy_info.c
+index 0d844d4..ebbd5be 100644
+--- a/platform/cfg80211/src/lib/target/wiphy_info.c
++++ b/platform/cfg80211/src/lib/target/wiphy_info.c
+@@ -57,7 +57,13 @@ enum {
+ };
+ 
+ /* static data */
++#ifdef CONFIG_PLATFORM_MAC80211
++static const char *wiphy_prefix = CONFIG_MAC80211_WIPHY_PREFIX;
++#define TARGET_WIPHY_PATH CONFIG_MAC80211_WIPHY_PATH
++#else
+ static const char *wiphy_prefix = "wlan";
++#define TARGET_WIPHY_PATH "/sys/class/net"
++#endif
+ 
+ static const struct {
+     unsigned short device;
+@@ -77,6 +83,8 @@ static const struct {
+     { 0, 0, "qca,wifi-ar956x", "qca9563", "Dragonfly" },
+     { 0, 0, "qcom,cnss-qca8074", "qca8074", "Hawkeye" },
+     { 0, 0, "qcom,cnss-qca8074v2", "qca8074", "Hawkeye" },
++    { 0, 0, "mediatek,mt7622-wmac", "mt7622", "Mediatek" },
++    { 0x7615, 0x14c3, 0, "mt7615", "Mediatek" },
+ };
+ 
+ /* runtime data */
+@@ -104,13 +112,13 @@ identify_chip(const char *phyname,
+     size_t i;
+ 
+     snprintf(path_base, sizeof(path_base),
+-             "/sys/class/net/%s/device", phyname);
++             TARGET_WIPHY_PATH"/%s/device", phyname);
+     snprintf(path_device, sizeof(path_device),
+-             "/sys/class/net/%s/device/device", phyname);
++             TARGET_WIPHY_PATH"/%s/device/device", phyname);
+     snprintf(path_vendor, sizeof(path_vendor),
+-             "/sys/class/net/%s/device/vendor", phyname);
++             TARGET_WIPHY_PATH"/%s/device/vendor", phyname);
+     snprintf(path_dtcompat, sizeof(path_dtcompat),
+-             "/sys/class/net/%s/device/of_node/compatible", phyname);
++             TARGET_WIPHY_PATH"/%s/device/of_node/compatible", phyname);
+ 
+     /* qca_da driver doesn't register `device` node properly so it's impossible
+      * to track back wifiX netdev back to the device node. The of_node is still
+@@ -338,7 +346,7 @@ wiphy_info_init(struct nl_global_info *nl_global)
+     struct dirent *i;
+     DIR *d;
+ 
+-    if (WARN_ON(!(d = opendir("/sys/class/net"))))
++    if (WARN_ON(!(d = opendir(TARGET_WIPHY_PATH))))
+         return -1;
+ 
+     while ((i = readdir(d)))
+-- 
+2.25.1
+

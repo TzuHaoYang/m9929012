@@ -1,0 +1,30 @@
+diff -urN a/platform/cfg80211/src/lib/target/target_cfg80211.c b/platform/cfg80211/src/lib/target/target_cfg80211.c
+--- a/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-03-11 21:44:17.995396804 +0530
++++ b/platform/cfg80211/src/lib/target/target_cfg80211.c	2021-03-11 21:47:25.999400770 +0530
+@@ -2868,7 +2868,10 @@
+     if (!rconf ||
+         changed->enabled ||
+         changed->mode ||
+-        changed->vif_radio_idx) {
++        changed->vif_radio_idx ||
++        /* Create VIF interface if it is deleted while setting SSID or channel*/
++        (vconf->enabled &&  (access(F("/sys/class/net/%s", vif), X_OK) != 0))) {
++
+         hostap_ctrl_destroy(vif);
+ 
+         if (access(F("/sys/class/net/%s", vif), X_OK) == 0) {
+@@ -2899,6 +2902,14 @@
+              rconf->channel_exists ? rconf->channel : 0);
+ 
+         nl_req_add_iface(&target_nl_global, vif, phy, vconf->mode, macaddr);
++        /* Set the mac-address using ip link command */ 
++        memset (buf,0,strlen(buf));
++        snprintf (buf, sizeof(buf), "ip link set %s addr %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
++			vif, 
++			macaddr[0], macaddr[1], macaddr[2],
++			macaddr[3], macaddr[4], macaddr[5]);
++        LOGI("Updating macaddr for vif %s  with cmd : %s\n",vif, buf);
++        system(buf);
+ 
+         hostap_ctrl_discover(vif);
+ 

@@ -1,0 +1,101 @@
+From: Koral Ilgun <koral.ilgun@smartrg.com>
+Date: Tue 5 May 2020 14:08:00 -0700
+Subject: added temperature reading for SR400
+
+Signed-off-by: Koral Ilgun <koral.ilgun@smartrg.com>
+--
+ phy-bcm-ns-usb2.c |   55 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+Index: linux-4.14.169/drivers/phy/broadcom/phy-bcm-ns-usb2.c
+===================================================================
+--- linux-4.14.169.orig/drivers/phy/broadcom/phy-bcm-ns-usb2.c
++++ linux-4.14.169/drivers/phy/broadcom/phy-bcm-ns-usb2.c
+@@ -19,6 +19,11 @@
+ #include <linux/phy/phy.h>
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
++#include <linux/sysfs.h>
++#include <linux/hwmon.h>
++#include <linux/hwmon-sysfs.h>
++
++void __iomem *usb2_dmu;
+ 
+ struct bcm_ns_usb2 {
+ 	struct device *dev;
+@@ -27,6 +32,37 @@ struct bcm_ns_usb2 {
+ 	void __iomem *dmu;
+ };
+ 
++static ssize_t bcm_thermal_show_temp(	struct device *dev,
++					struct device_attribute *attr,
++					char *buf)
++{
++        void *__iomem pvtmon_base;
++        u32 pvtmon_control0, pvtmon_status;
++        int ret, temperature;
++        void __iomem *dmu = usb2_dmu;
++
++        pvtmon_base = (void *)(dmu + 0x2c0);
++        pvtmon_control0 = readl(pvtmon_base);
++        if (pvtmon_control0 & 0xf) {
++                pvtmon_control0 &= ~0xf;
++                writel(pvtmon_control0, pvtmon_base);
++        }
++
++        pvtmon_status = readl(pvtmon_base + 0x8);
++        temperature = 418 - ((5556 * pvtmon_status) / 10000);
++
++        ret = snprintf(buf, PAGE_SIZE, "%d\n", temperature * 1000);
++        return ret;
++}
++
++static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, bcm_thermal_show_temp, NULL, 0);
++
++static struct attribute *bcm_hwmon_attrs[] = {
++	&sensor_dev_attr_temp1_input.dev_attr.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(bcm_hwmon);
++
+ static int bcm_ns_usb2_phy_init(struct phy *phy)
+ {
+ 	struct bcm_ns_usb2 *usb2 = phy_get_drvdata(phy);
+@@ -89,6 +125,7 @@ static int bcm_ns_usb2_probe(struct plat
+ 	struct bcm_ns_usb2 *usb2;
+ 	struct resource *res;
+ 	struct phy_provider *phy_provider;
++	struct device *hwmon_dev;
+ 
+ 	usb2 = devm_kzalloc(&pdev->dev, sizeof(*usb2), GFP_KERNEL);
+ 	if (!usb2)
+@@ -97,11 +134,29 @@ static int bcm_ns_usb2_probe(struct plat
+ 
+ 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dmu");
+ 	usb2->dmu = devm_ioremap_resource(dev, res);
++	usb2_dmu = usb2->dmu;
+ 	if (IS_ERR(usb2->dmu)) {
+ 		dev_err(dev, "Failed to map DMU regs\n");
+ 		return PTR_ERR(usb2->dmu);
+ 	}
+ 
++        /* Avoid linking error on devm_hwmon_device_register_with_groups, I
++         * guess linux/hwmon.h is missing proper stubs.
++         */
++	if (!IS_REACHABLE(CONFIG_HWMON))
++                return 0;
++
++	hwmon_dev = devm_hwmon_device_register_with_groups(dev, 
++							"bcm_hwmon", 
++							pdev, 
++							bcm_hwmon_groups);
++	if (IS_ERR(hwmon_dev)) {
++		dev_err(dev, "failed to register hwmon device: %ld\n",
++			PTR_ERR(hwmon_dev));
++		// return PTR_ERR(hwmon_dev);
++		/* keep going */
++	}
++
+ 	usb2->ref_clk = devm_clk_get(dev, "phy-ref-clk");
+ 	if (IS_ERR(usb2->ref_clk)) {
+ 		dev_err(dev, "Clock not defined\n");

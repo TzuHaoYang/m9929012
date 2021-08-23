@@ -1,0 +1,20 @@
+--- a/src/wm2/src/wm2_radio.c
++++ b/src/wm2/src/wm2_radio.c
+@@ -517,7 +517,7 @@ wm2_radio_update_port_state_set_inactive
+ 
+ #define CMP(cmp, name) \
+     (changed |= (changedf->name = ((cmp(conf, state, name, changedf->_uuid)) && \
+-                                   (LOGD("%s: '%s' changed", conf->if_name, #name), 1))))
++                                   (LOGI("%s: '%s' changed", conf->if_name, #name), 1))))
+ 
+ static bool
+ wm2_vconf_changed(const struct schema_Wifi_VIF_Config *conf,
+                  const struct schema_Wifi_VIF_State *state,
+                  struct schema_Wifi_VIF_Config_flags *changedf)
+ {
+     int changed = 0;
+
+     memset(changedf, 0, sizeof(*changedf));
+     changed |= (changedf->_uuid = strcmp(conf->_uuid.uuid, state->vif_config.uuid));
++    LOGI("%s: %s %s", conf->if_name, conf->ssid, state->ssid);
+     CMP(CHANGED_INT, enabled);

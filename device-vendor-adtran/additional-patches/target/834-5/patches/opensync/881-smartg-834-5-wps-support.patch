@@ -1,0 +1,12 @@
+diff -urN a/src/lib/hostap/kconfig/Kconfig b/src/lib/hostap/kconfig/Kconfig
+--- a/src/lib/hostap/kconfig/Kconfig	2020-06-02 09:20:00.000000000 +0530
++++ b/src/lib/hostap/kconfig/Kconfig	2021-05-27 18:43:02.362295529 +0530
+@@ -12,7 +12,7 @@
+ 
+ config HOSTAP_PSK_FILE_WPS
+     bool "use PSKs from wpa_psk_file for WPS sessions"
+-    default n
++    default y
+     help
+         This feature requires a patch on hostapd. We introduced new tag "wps" to PSK
+         file. That tag is used for marking PSKs usable in WPS sessions. By default

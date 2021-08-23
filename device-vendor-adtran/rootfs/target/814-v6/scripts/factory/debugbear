@@ -1,0 +1,39 @@
+#!/bin/sh
+
+#START=99
+#STOP=99
+
+
+NAME=debugbear
+DAEMON="/bin/sh /usr/opensync/scripts/factory/${NAME}_service"
+DAEMON_OPTS=""
+SERVICE_PID_FILE="/var/run/debugbear.pid"
+
+
+case "$1" in
+    start)
+        echo -n "Starting daemon: "$NAME
+        start-stop-daemon -S -q -b -p $SERVICE_PID_FILE -x $DAEMON -- $DAEMON_OPTS
+        echo "."
+        ;;
+
+    stop)
+        echo -n "Stopping daemon: "$NAME
+        start-stop-daemon -K -q -p $SERVICE_PID_FILE
+        echo "."
+        # If dropbear was started by debugbear_service, service_stop won't kill it
+        # Do it here.
+        [ -e "$SERVICE_PID_FILE" ] && kill $(cat "$SERVICE_PID_FILE") > /dev/null 2>&1
+        ;;
+
+    restart)
+        echo -n "Restarting daemon: "$NAME
+        start-stop-daemon -K -q -p $SERVICE_PID_FILE
+        start-stop-daemon -S -q -b -p $SERVICE_PID_FILE -x $DAEMON -- $DAEMON_OPTS
+        echo "."
+        ;;
+
+    *)
+        echo "Usage: "$1" {start|stop|restart}"
+        exit 1
+esac
