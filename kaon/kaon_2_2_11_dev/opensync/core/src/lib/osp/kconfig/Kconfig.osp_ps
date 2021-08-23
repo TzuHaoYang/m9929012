@@ -1,3 +1,0 @@
-# Add psfs options
-#
-source "src/lib/psfs/kconfig/Kconfig"

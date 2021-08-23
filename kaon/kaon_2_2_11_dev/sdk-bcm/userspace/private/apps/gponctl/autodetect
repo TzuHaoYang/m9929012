@@ -1,4 +1,0 @@
-
-dependson: private/libs/gponctl
-condition: ifneq ($(strip $(BUILD_GPONCTL)),)
-

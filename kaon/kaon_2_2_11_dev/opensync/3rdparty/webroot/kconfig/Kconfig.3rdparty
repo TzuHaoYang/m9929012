@@ -1,4 +1,0 @@
-menuconfig 3RDPARTY_WEBROOT
-    bool "Webroot content filtering"
-    default y
-

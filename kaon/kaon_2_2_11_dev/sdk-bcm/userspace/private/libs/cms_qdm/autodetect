@@ -1,2 +1,0 @@
-condition: ifneq ($(strip $(BUILD_BRCM_CMS)),)
-dependson: private/libs/i5api private/libs/omcisdk private/libs/wlcsm

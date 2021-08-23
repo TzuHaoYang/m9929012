@@ -1,7 +1,0 @@
-
-Install Directions for OVS code:
-
-1. untar the OVS source file tarball from the bcm963xx directory, e.g.
-   cd bcm963xx
-   tar -zxvf ../bcm963xx_5.02L.07_data_ovs.tar.gz
-

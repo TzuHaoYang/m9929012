@@ -1,2 +1,0 @@
-condition: ifeq ($(BUILD_OPENSYNC),y)
-dependson:  gpl/libs/mnl public/libs/openssl

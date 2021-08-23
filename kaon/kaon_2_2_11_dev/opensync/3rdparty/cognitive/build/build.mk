@@ -1,1 +1,0 @@
-INCLUDE_LAYERS += $(if $(CONFIG_3RDPARTY_COGNITIVE),3rdparty/cognitive)

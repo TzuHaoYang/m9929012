@@ -1,2 +1,0 @@
-condition: ifeq ($(BUILD_OPENSYNC),y)
-dependson: public/libs/libsodium

@@ -1,2 +1,0 @@
-INCLUDE_LAYERS += $(if $(CONFIG_3RDPARTY_WALLEYE),3rdparty/walleye)
-

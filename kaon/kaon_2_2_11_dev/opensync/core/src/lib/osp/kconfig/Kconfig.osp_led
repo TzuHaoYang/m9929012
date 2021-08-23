@@ -1,5 +1,0 @@
-config OSP_LED
-    bool "Enable support for OSP LED API"
-    default n
-    help
-        Use the new OSP LED API

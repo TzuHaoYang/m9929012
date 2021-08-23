@@ -1,3 +1,0 @@
-menuconfig 3RDPARTY_COGNITIVE
-    bool "Cognitive - WiFi Motion"
-    default n

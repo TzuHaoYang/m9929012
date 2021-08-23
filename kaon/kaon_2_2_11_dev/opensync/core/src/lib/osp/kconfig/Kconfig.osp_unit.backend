@@ -1,5 +1,0 @@
-config OSP_UNIT_DEFAULT
-    bool "Default"
-
-    help
-        Use a default implementation of OSP Unit API

@@ -1,3 +1,0 @@
-# Add objmfs options
-#
-source "src/lib/objmfs/kconfig/Kconfig"

@@ -1,2 +1,0 @@
-dependson: public/libs/popt public/libs/uuid public/libs/stlport
-

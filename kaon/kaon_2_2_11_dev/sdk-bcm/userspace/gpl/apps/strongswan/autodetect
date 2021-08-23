@@ -1,1 +1,0 @@
-dependson: public/libs/openssl gpl/libs/netfilter_conntrack gpl/libs/nfnetlink

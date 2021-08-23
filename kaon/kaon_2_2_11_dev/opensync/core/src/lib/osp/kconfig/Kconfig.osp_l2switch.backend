@@ -1,5 +1,0 @@
-config OSP_L2SWITCH_NULL
-    bool "Null"
-
-    help
-        Use a dummy L2 switch implementation
