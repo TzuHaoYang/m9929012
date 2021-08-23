@@ -1,0 +1,849 @@
+commit 47da339d7d71375c933b617a1c5cc4278b70f8d5
+Author: Michal Kazior <michal@plume.com>
+Date:   Wed Sep 4 10:52:26 2019 +0000
+
+    ( cd "$sdkdir" && unzip -o /dev/stdin && tar -cC patch . | tar -xvC . && rm -rf patch )  < CS6660840-support-for-i2c-bus-in-cfe/patch.zip
+
+--- /dev/null
++++ b/cfe/cfe/board/bcm63xx_ram/include/dev_bcm47189_i2c.h
+@@ -0,0 +1,99 @@
++/*
++<:copyright-BRCM:2013:proprietary:standard
++
++   Copyright (c) 2013 Broadcom 
++   All Rights Reserved
++
++ This program is the proprietary software of Broadcom and/or its
++ licensors, and may only be used, duplicated, modified or distributed pursuant
++ to the terms and conditions of a separate, written license agreement executed
++ between you and Broadcom (an "Authorized License").  Except as set forth in
++ an Authorized License, Broadcom grants no license (express or implied), right
++ to use, or waiver of any kind with respect to the Software, and Broadcom
++ expressly reserves all rights in and to the Software and all intellectual
++ property rights therein.  IF YOU HAVE NO AUTHORIZED LICENSE, THEN YOU HAVE
++ NO RIGHT TO USE THIS SOFTWARE IN ANY WAY, AND SHOULD IMMEDIATELY NOTIFY
++ BROADCOM AND DISCONTINUE ALL USE OF THE SOFTWARE.
++
++ Except as expressly set forth in the Authorized License,
++
++ 1. This program, including its structure, sequence and organization,
++    constitutes the valuable trade secrets of Broadcom, and you shall use
++    all reasonable efforts to protect the confidentiality thereof, and to
++    use this information only in connection with your use of Broadcom
++    integrated circuit products.
++
++ 2. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS"
++    AND WITH ALL FAULTS AND BROADCOM MAKES NO PROMISES, REPRESENTATIONS OR
++    WARRANTIES, EITHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, WITH
++    RESPECT TO THE SOFTWARE.  BROADCOM SPECIFICALLY DISCLAIMS ANY AND
++    ALL IMPLIED WARRANTIES OF TITLE, MERCHANTABILITY, NONINFRINGEMENT,
++    FITNESS FOR A PARTICULAR PURPOSE, LACK OF VIRUSES, ACCURACY OR
++    COMPLETENESS, QUIET ENJOYMENT, QUIET POSSESSION OR CORRESPONDENCE
++    TO DESCRIPTION. YOU ASSUME THE ENTIRE RISK ARISING OUT OF USE OR
++    PERFORMANCE OF THE SOFTWARE.
++
++ 3. TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL BROADCOM OR
++    ITS LICENSORS BE LIABLE FOR (i) CONSEQUENTIAL, INCIDENTAL, SPECIAL,
++    INDIRECT, OR EXEMPLARY DAMAGES WHATSOEVER ARISING OUT OF OR IN ANY
++    WAY RELATING TO YOUR USE OF OR INABILITY TO USE THE SOFTWARE EVEN
++    IF BROADCOM HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES;
++    OR (ii) ANY AMOUNT IN EXCESS OF THE AMOUNT ACTUALLY PAID FOR THE
++    SOFTWARE ITSELF OR U.S. $1, WHICHEVER IS GREATER. THESE LIMITATIONS
++    SHALL APPLY NOTWITHSTANDING ANY FAILURE OF ESSENTIAL PURPOSE OF ANY
++    LIMITED REMEDY.
++:>
++*/
++#ifndef __DEV_BCM47189_I2C_H
++#define __DEV_BCM47189_I2C_H
++
++#include "bcm_hwdefs.h"
++#include "bcm_map.h"
++#include "boardparms.h"
++#include "cfe_timer.h"
++
++#define I2C_SMBUS_BLOCK_MAX	32	/* As specified in SMBus standard */
++
++extern int i2c_gpio_init(void);
++extern int i2c_master_recv(unsigned short addr, unsigned char *buf, int count);
++extern int i2c_master_send(unsigned short addr , const unsigned char *buf, int count);
++
++
++
++struct i2c_gpio_data {
++
++    unsigned short bpGpio_scl;
++	unsigned short bpGpio_sda;
++	
++	void (*setsda) (int state);
++	void (*setscl) (int state);
++	int  (*getsda) (void);
++	int  (*getscl) (void);
++
++	/* local settings */
++	int udelay;		/* half clock cycle time in us,
++				   minimum 2 us for fast-mode I2C,
++				   minimum 5 us for standard-mode I2C and SMBus,
++				   maximum 50 us for SMBus */
++	int timeout;		/* in jiffies */
++};
++
++
++
++struct i2c_msg {
++	unsigned short addr;	/* slave address			*/
++	unsigned short flags;
++#define I2C_M_TEN		0x0010	/* this is a ten bit chip address */
++#define I2C_M_RD		0x0001	/* read data, from slave to master */
++#define I2C_M_STOP		0x8000	/* if I2C_FUNC_PROTOCOL_MANGLING */
++#define I2C_M_NOSTART		0x4000	/* if I2C_FUNC_NOSTART */
++#define I2C_M_REV_DIR_ADDR	0x2000	/* if I2C_FUNC_PROTOCOL_MANGLING */
++#define I2C_M_IGNORE_NAK	0x1000	/* if I2C_FUNC_PROTOCOL_MANGLING */
++#define I2C_M_NO_RD_ACK		0x0800	/* if I2C_FUNC_PROTOCOL_MANGLING */
++#define I2C_M_RECV_LEN		0x0400	/* length will be first received byte */
++	unsigned short len;		/* msg length				*/
++	unsigned char *buf;		/* pointer to msg data			*/
++};
++
++
++#endif 
+--- a/cfe/cfe/board/bcm63xx_ram/src/Makefile
++++ b/cfe/cfe/board/bcm63xx_ram/src/Makefile
+@@ -344,7 +344,8 @@ BSPOBJS += \
+ 	bcm_misc_hw_init_impl7.o \
+ 	bcm_gpio_impl3.o \
+ 	bcm_led_impl3.o \
+-	bcm_bbsi.o
++	bcm_bbsi.o  \
++	dev_bcm47189_i2c.o
+ endif
+ 
+ BSPOBJS +=               \
+--- /dev/null
++++ b/cfe/cfe/board/bcm63xx_ram/src/dev_bcm47189_i2c.c
+@@ -0,0 +1,704 @@
++
++/*
++<:copyright-BRCM:2018:DUAL/GPL:standard
++
++   Copyright (c) 2018 Broadcom 
++   All Rights Reserved
++
++Unless you and Broadcom execute a separate written software license
++agreement governing use of this software, this software is licensed
++to you under the terms of the GNU General Public License version 2
++(the "GPL"), available at http://www.broadcom.com/licenses/GPLv2.php,
++with the following added to such license:
++
++   As a special exception, the copyright holders of this software give
++   you permission to link this software with independent modules, and
++   to copy and distribute the resulting executable under terms of your
++   choice, provided that you also meet, for each linked independent
++   module, the terms and conditions of the license of that module.
++   An independent module is a module which is not derived from this
++   software.  The special exception does not apply to any modifications
++   of the software.
++
++Not withstanding the above, under no circumstances may you combine
++this software in any way with any other Broadcom software provided
++under a license other than the GPL, without Broadcom's express prior
++written consent.
++
++:>
++*/
++
++
++#include "lib_types.h"
++#include "lib_malloc.h"
++#include "lib_byteorder.h"
++#include "lib_string.h"
++#include "lib_printf.h"
++
++#include "bcm_gpio.h"
++#include "bcm_pinmux.h"
++#include "cfe_timer.h"
++
++#include "dev_bcm47189_i2c.h"
++
++
++//#define I2C_DEBUG
++
++struct i2c_gpio_data  i2c_gpio;
++
++
++#define setsda(val)	i2c_gpio.setsda(val)
++#define setscl(val)	i2c_gpio.setscl(val)
++#define getsda()    i2c_gpio.getsda()
++#define getscl()    i2c_gpio.getscl()
++
++static int gpio_direction_input( unsigned gpio);
++static int gpio_direction_output( unsigned gpio, int level);
++static void i2c_gpio_setsda_dir(int state);
++static void i2c_gpio_setscl_dir(int state);
++static int i2c_gpio_getsda(void);
++static int i2c_gpio_getscl(void);
++#if 0
++static void gpio_set_value(unsigned gpio, int value);
++#endif
++static int gpio_get_value(unsigned gpio);
++static inline void sdalo(void);
++static inline void sdahi(void);
++static inline void scllo(void);
++static int sclhi(void);
++static void i2c_repstart(void);
++static void i2c_start(void);
++static void i2c_stop(void);
++static inline void i2c_delay_half(void);
++static inline void i2c_delay_half_one(void);
++static inline void i2c_delay(void);
++static int i2c_outb(unsigned char c);
++static int i2c_inb(void);
++static int try_address(unsigned char addr, int retries);
++static int bit_doAddress( struct i2c_msg *msg);
++static int acknak( int is_ack);
++static int i2c_xfer(struct i2c_msg msgs[], int num);
++static int readbytes(struct i2c_msg *msg);
++static int sendbytes(struct i2c_msg *msg);
++
++
++
++
++
++int i2c_gpio_init(void)
++{
++    
++	unsigned short bpGpio_scl, bpGpio_sda;
++	
++    BpGetBitbangSclGpio(&bpGpio_scl);
++    BpGetBitbangSdaGpio(&bpGpio_sda);
++
++	if (bpGpio_scl != BP_NOT_DEFINED &&
++        bpGpio_sda != BP_NOT_DEFINED ) 
++    {
++        i2c_gpio.bpGpio_scl = bpGpio_scl & BP_GPIO_NUM_MASK;
++        i2c_gpio.bpGpio_sda = bpGpio_sda & BP_GPIO_NUM_MASK;
++
++        printf("i2c_gpio_init: SDA = %d and SCL =%d GPIOs\n",
++                bpGpio_scl, bpGpio_sda);
++	}
++	else
++	{
++        printf("i2c_gpio_init: GPIO pins undefined\n");
++		return -1;
++
++	}
++
++	gpio_direction_input(bpGpio_sda);
++	i2c_gpio.setsda = i2c_gpio_setsda_dir;
++	
++	gpio_direction_input(bpGpio_scl);
++	i2c_gpio.setscl = i2c_gpio_setscl_dir;
++
++	i2c_gpio.getscl = i2c_gpio_getscl;
++	i2c_gpio.getsda = i2c_gpio_getsda;
++
++	i2c_gpio.udelay = 5;			/* 100 kHz */
++
++	i2c_gpio.timeout = CFE_HZ / 10;		/* 100 ms */
++
++
++	return 0;
++}
++
++static int gpio_direction_input( unsigned gpio)
++{
++	
++    bcm_gpio_set_dir(gpio, 0);
++	
++	return 0;
++}
++
++static int gpio_direction_output( unsigned gpio, int level)
++{
++	
++    bcm_gpio_set_dir(gpio, 1);
++    bcm_gpio_set_data(gpio,0);
++	  
++	return 0;
++}
++
++static int gpio_get_value(unsigned gpio)
++{ 
++    return bcm_gpio_get_data(gpio);
++}
++
++
++#if 0
++static void gpio_set_value(unsigned gpio, int value)
++{
++    
++	bcm_gpio_set_data(gpio, value);
++}
++
++#endif
++
++/* Toggle SDA by changing the direction of the pin */
++static void i2c_gpio_setsda_dir(int state)
++{
++	if (state)
++		gpio_direction_input(i2c_gpio.bpGpio_sda);
++	else
++		gpio_direction_output(i2c_gpio.bpGpio_sda, 0);
++}
++
++
++/* Toggle SCL by changing the direction of the pin. */
++static void i2c_gpio_setscl_dir(int state)
++{
++
++	if (state)
++		gpio_direction_input(i2c_gpio.bpGpio_scl);
++	else
++		gpio_direction_output(i2c_gpio.bpGpio_scl, 0);
++}
++
++
++static int i2c_gpio_getsda(void)
++{
++	return gpio_get_value(i2c_gpio.bpGpio_sda);
++}
++
++static int i2c_gpio_getscl(void)
++{
++	return gpio_get_value(i2c_gpio.bpGpio_scl);
++}
++
++
++static inline void sdalo(void)
++{
++	setsda(0);
++	cfe_usleep((i2c_gpio.udelay + 1) / 2);
++}
++
++static inline void sdahi(void)
++{
++	setsda(1);
++	cfe_usleep((i2c_gpio.udelay + 1) / 2);
++}
++
++static inline void scllo(void)
++{
++	setscl( 0);
++	cfe_usleep(i2c_gpio.udelay / 2);
++}
++
++/*
++ * Raise scl line, and do checking for delays. This is necessary for slower
++ * devices.
++ */
++static int sclhi(void)
++{
++	unsigned long start;
++	unsigned long end;
++
++	
++
++	setscl(1);
++
++	if (!i2c_gpio.getscl)
++		goto done;
++
++	start = _getticks();
++	end =  start + ((unsigned long)(i2c_gpio.timeout*1000000/CFE_HZ))*((unsigned long)cfe_clocks_per_usec);
++	while (!getscl()) {
++		/* This hw knows how to read the clock line, so we wait
++		 * until it actually gets high.  This is safer as some
++		 * chips may hold it low ("clock stretching") while they
++		 * are processing data internally.
++		 */
++		if(end < start)
++		   if(_getticks() >  start)
++		 	   continue;
++
++	
++		if (_getticks() >= end) {
++			/* Test one last time, as we may have been preempted
++			 * between last check and timeout test.
++			 */
++			if (getscl())
++				break;
++			return -1;
++		}
++		//cpu_relax();
++	}
++#ifdef DEBUG
++	if (_getticks() != start)
++		printf("i2c-gpio: needed %ld ticks for SCL to go "
++			 "high\n", _getticks() - start);
++#endif
++
++done:
++	cfe_usleep(i2c_gpio.udelay);
++	return 0;
++}
++
++
++static void i2c_start(void)
++{
++	/* assert: scl, sda are high */
++	setsda(0);
++	cfe_usleep(i2c_gpio.udelay);
++	scllo();
++}
++
++static void i2c_repstart(void)
++{
++	/* assert: scl is low */
++	sdahi();
++	sclhi();
++	setsda(0);
++	cfe_usleep(i2c_gpio.udelay);
++	scllo();
++}
++
++
++static void i2c_stop(void)
++{
++	/* assert: scl is low */
++	sdalo();
++	sclhi();
++	setsda(1);
++	cfe_usleep(i2c_gpio.udelay);
++}
++
++static inline void i2c_delay_half(void)
++{
++	cfe_usleep(i2c_gpio.udelay/2);
++}
++
++
++static inline void i2c_delay_half_one(void)
++{
++	cfe_usleep((i2c_gpio.udelay + 1) / 2);
++}
++
++static inline void i2c_delay(void)
++{
++	cfe_usleep(i2c_gpio.udelay);
++}
++
++
++/* send a byte without start cond., look for arbitration,
++   check ackn. from slave */
++/* returns:
++ * 1 if the device acknowledged
++ * 0 if the device did not ack
++ * -ETIMEDOUT if an error occurred (while raising the scl line)
++ */
++static int i2c_outb(unsigned char c)
++{
++	int i;
++	int sb;
++	int ack;
++
++	/* assert: scl is low */
++	for (i = 7; i >= 0; i--) {
++		sb = (c >> i) & 1;
++		setsda(sb);
++		i2c_delay_half_one();
++		if (sclhi() < 0) { /* timed out */
++			//bit_dbg(1, &i2c_adap->dev, "i2c_outb: 0x%02x, "
++			//	"timeout at bit #%d\n", (int)c, i);
++			return -1;
++		}
++		/* FIXME do arbitration here:
++		 * if (sb && !getsda(adap)) -> ouch! Get out of here.
++		 *
++		 * Report a unique code, so higher level code can retry
++		 * the whole (combined) message and *NOT* issue STOP.
++		 */
++		scllo();
++	}
++	sdahi();
++	if (sclhi() < 0) { /* timeout */
++		//bit_dbg(1, &i2c_adap->dev, "i2c_outb: 0x%02x, "
++		//	"timeout at ack\n", (int)c);
++		return -1;
++	}
++
++	/* read ack: SDA should be pulled down by slave, or it may
++	 * NAK (usually to report problems with the data we wrote).
++	 */
++	ack = !getsda();    /* ack: sda is pulled low -> success */
++	//bit_dbg(2, &i2c_adap->dev, "i2c_outb: 0x%02x %s\n", (int)c,
++	//	ack ? "A" : "NA");
++
++	scllo();
++	return ack;
++	/* assert: scl is low (sda undef) */
++}
++
++
++static int i2c_inb(void)
++{
++	/* read byte via i2c port, without start/stop sequence	*/
++	/* acknowledge is sent in i2c_read.			*/
++	int i;
++	unsigned char indata = 0;
++
++	/* assert: scl is low */
++	sdahi();
++	for (i = 0; i < 8; i++) {
++		if (sclhi() < 0) { /* timeout */
++			//bit_dbg(1, &i2c_adap->dev, "i2c_inb: timeout at bit "
++			//	"#%d\n", 7 - i);
++			return -1;
++		}
++		indata *= 2;
++		if (getsda())
++			indata |= 0x01;
++		setscl(0);
++		//udelay(i == 7 ? adap->udelay / 2 : adap->udelay);
++		if(i==7)
++			i2c_delay_half();
++		else
++			i2c_delay();
++	}
++	/* assert: scl is low */
++	return indata;
++}
++
++
++/* try_address tries to contact a chip for a number of
++ * times before it gives up.
++ * return values:
++ * 1 chip answered
++ * 0 chip did not answer
++ * -x transmission error
++ */
++static int try_address(unsigned char addr, int retries)
++{
++	//struct i2c_algo_bit_data *adap = i2c_adap->algo_data;
++	int i, ret = 0;
++
++	for (i = 0; i <= retries; i++) {
++		ret = i2c_outb(addr);
++		if (ret == 1 || i == retries)
++			break;
++		//bit_dbg(3, &i2c_adap->dev, "emitting stop condition\n");
++		i2c_stop();
++		i2c_delay();
++		//yield();
++		//bit_dbg(3, &i2c_adap->dev, "emitting start condition\n");
++		i2c_start();
++	}
++	
++#if 0
++	if (i && ret)
++		bit_dbg(1, &i2c_adap->dev, "Used %d tries to %s client at "
++			"0x%02x: %s\n", i + 1,
++			addr & 1 ? "read from" : "write to", addr >> 1,
++			ret == 1 ? "success" : "failed, timeout?");
++#endif
++
++	return ret;
++}
++
++static int bit_doAddress( struct i2c_msg *msg)
++{
++	unsigned short flags = msg->flags;
++	unsigned short nak_ok = msg->flags & I2C_M_IGNORE_NAK;
++
++	unsigned char addr;
++	int ret, retries;
++
++	//retries = nak_ok ? 0 : i2c_adap->retries;
++	retries = nak_ok ? 0 : 3;
++
++	if (flags & I2C_M_TEN) {
++		/* a ten bit address */
++		addr = 0xf0 | ((msg->addr >> 7) & 0x06);
++		//bit_dbg(2, &i2c_adap->dev, "addr0: %d\n", addr);
++		/* try extended address code...*/
++		ret = try_address(addr, retries);
++		if ((ret != 1) && !nak_ok)  {
++			printf("die at extened address code\n");
++			return -1;
++		}
++		/* the remaining 8 bit address */
++		ret = i2c_outb(msg->addr & 0xff);
++		if ((ret != 1) && !nak_ok) {
++			/* the chip did not ack / xmission error occurred */
++			printf("died at 2nd address code\n");
++			return -1;
++		}
++		if (flags & I2C_M_RD) {
++			//bit_dbg(3, &i2c_adap->dev, "emitting repeated "
++			//	"start condition\n");
++			i2c_repstart();
++			/* okay, now switch into reading mode */
++			addr |= 0x01;
++			ret = try_address(addr, retries);
++			if ((ret != 1) && !nak_ok) {
++				printf("died at repeated address code\n");
++				return -1;
++			}
++		}
++	} else {		/* normal 7bit address	*/
++		addr = msg->addr << 1;
++		if (flags & I2C_M_RD)
++			addr |= 1;
++		if (flags & I2C_M_REV_DIR_ADDR)
++			addr ^= 1;
++		ret = try_address(addr, retries);
++		if ((ret != 1) && !nak_ok)
++			return -1;
++	}
++
++	return 0;
++}
++
++ 
++ static int acknak( int is_ack)
++ {
++	 /* assert: sda is high */
++	 if (is_ack)	 /* send ack */
++		 setsda(0);
++	 //udelay((adap->udelay + 1) / 2);
++	 i2c_delay_half_one();
++	 if (sclhi() < 0) {  /* timeout */
++		 printf("readbytes: ack/nak timeout\n");
++		 return -1;
++	 }
++	 scllo();
++	 return 0;
++ }
++
++ 
++ static int sendbytes(struct i2c_msg *msg)
++ {
++	 const unsigned char *temp = msg->buf;
++	 int count = msg->len;
++	 unsigned short nak_ok = msg->flags & I2C_M_IGNORE_NAK;
++	 int retval;
++	 int wrcount = 0;
++ 
++	 while (count > 0) {
++		 retval = i2c_outb(*temp);
++ 
++		 /* OK/ACK; or ignored NAK */
++		 if ((retval > 0) || (nak_ok && (retval == 0))) {
++			 count--;
++			 temp++;
++			 wrcount++;
++ 
++		 /* A slave NAKing the master means the slave didn't like
++		  * something about the data it saw.  For example, maybe
++		  * the SMBus PEC was wrong.
++		  */
++		 } else if (retval == 0) {
++			 printf("sendbytes: NAK bailout.\n");
++			 return -1;
++ 
++		 /* Timeout; or (someday) lost arbitration
++		  *
++		  * FIXME Lost ARB implies retrying the transaction from
++		  * the first message, after the "winning" master issues
++		  * its STOP.  As a rule, upper layer code has no reason
++		  * to know or care about this ... it is *NOT* an error.
++		  */
++		 } else {
++			 printf("sendbytes: error %d\n",
++					 retval);
++			 return retval;
++		 }
++	 }
++	 return wrcount;
++ }
++static int readbytes(struct i2c_msg *msg)
++{
++	int inval;
++	int rdcount = 0;	/* counts bytes read */
++	unsigned char *temp = msg->buf;
++	int count = msg->len;
++	const unsigned flags = msg->flags;
++
++	while (count > 0) {
++		inval = i2c_inb();
++		if (inval >= 0) {
++			*temp = inval;
++			rdcount++;
++		} else {   /* read timed out */
++			break;
++		}
++
++		temp++;
++		count--;
++
++		/* Some SMBus transactions require that we receive the
++		   transaction length as the first read byte. */
++		if (rdcount == 1 && (flags & I2C_M_RECV_LEN)) {
++			if (inval <= 0 || inval > I2C_SMBUS_BLOCK_MAX) {
++				if (!(flags & I2C_M_NO_RD_ACK))
++					acknak(0);
++				printf("readbytes: invalid "
++					"block length (%d)\n", inval);
++				return -1;
++			}
++			/* The original count value accounts for the extra
++			   bytes, that is, either 1 for a regular transaction,
++			   or 2 for a PEC transaction. */
++			count += inval;
++			msg->len += inval;
++		}
++
++#if 0
++		bit_dbg(2, &i2c_adap->dev, "readbytes: 0x%02x %s\n",
++			inval,
++			(flags & I2C_M_NO_RD_ACK)
++				? "(no ack/nak)"
++				: (count ? "A" : "NA"));
++#endif
++
++		if (!(flags & I2C_M_NO_RD_ACK)) {
++			inval = acknak(count);
++			if (inval < 0)
++				return inval;
++		}
++	}
++	return rdcount;
++} 
++static int i2c_xfer(struct i2c_msg msgs[], int num)
++{
++	struct i2c_msg *pmsg;
++	int i, ret;
++	unsigned short nak_ok;
++
++	//bit_dbg(3, &i2c_adap->dev, "emitting start condition\n");
++	i2c_start();
++	for (i = 0; i < num; i++) {
++		pmsg = &msgs[i];
++		nak_ok = pmsg->flags & I2C_M_IGNORE_NAK;
++		if (!(pmsg->flags & I2C_M_NOSTART)) {
++			if (i) {
++
++				//bit_dbg(3, &i2c_adap->dev, "emitting "
++				//	"repeated start condition\n");
++				i2c_repstart();
++			}
++			ret = bit_doAddress(pmsg);
++			if ((ret != 0) && !nak_ok) {
++				//bit_dbg(1, &i2c_adap->dev, "NAK from "
++				//	"device addr 0x%02x msg #%d\n",
++				//	msgs[i].addr, i);
++				goto bailout;
++			}
++		}
++		if (pmsg->flags & I2C_M_RD) {
++			/* read bytes into buffer*/
++			ret = readbytes(pmsg);
++			if (ret >= 1)
++			{
++				//bit_dbg(2, &i2c_adap->dev, "read %d byte%s\n",
++				//	ret, ret == 1 ? "" : "s");
++			}
++			if (ret < pmsg->len) {
++				if (ret >= 0)
++					ret = -1;
++				goto bailout;
++			}
++		} else {
++			/* write bytes from buffer */
++			ret = sendbytes(pmsg);
++			if (ret >= 1)
++			{
++				//bit_dbg(2, &i2c_adap->dev, "wrote %d byte%s\n",
++				//	ret, ret == 1 ? "" : "s");
++			}
++			if (ret < pmsg->len) {
++				if (ret >= 0)
++					ret = -1;
++				goto bailout;
++			}
++		}
++	}
++	ret = i;
++
++bailout:
++	//bit_dbg(3, &i2c_adap->dev, "emitting stop condition\n");
++	i2c_stop();
++
++	
++	return ret;
++}
++
++
++int i2c_master_send(unsigned short addr , const unsigned char *buf, int count)
++{
++	int ret;
++	struct i2c_msg msg;
++
++	msg.addr = addr;
++	msg.flags = I2C_M_TEN;
++	msg.len = count;
++	msg.buf = (unsigned char *)buf;
++
++	ret = i2c_xfer(&msg, 1);
++
++	/*
++	 * If everything went ok (i.e. 1 msg transmitted), return #bytes
++	 * transmitted, else error code.
++	 */
++#ifdef I2C_DEBUG
++    printf("i2c_master_send: addr:%hx,count:%d\n",addr,count);
++#endif
++
++	return (ret == 1) ? count : ret;
++}
++
++int i2c_master_recv(unsigned short addr, unsigned char *buf, int count)
++{
++	struct i2c_msg msg;
++	int ret;
++
++
++	msg.addr = addr;
++	msg.flags = I2C_M_TEN;
++	msg.flags |= I2C_M_RD;
++	msg.len = count;
++	msg.buf = buf;
++
++	ret = i2c_xfer(&msg, 1);
++
++	/*
++	 * If everything went ok (i.e. 1 msg received), return #bytes received,
++	 * else error code.
++	 */
++
++#ifdef I2C_DEBUG
++    printf("i2c_master_recv: addr:%hx,count:%d\n",addr,count);
++#endif
++
++	return (ret == 1) ? count : ret;
++}
++
++
++
++
++
+--- a/cfe/cfe/include/cfe_timer.h
++++ b/cfe/cfe/include/cfe_timer.h
+@@ -47,6 +47,8 @@
+ #ifndef _CFE_TIMER_T
+ #define _CFE_TIMER_T
+ 
++extern unsigned int cfe_clocks_per_usec;
++
+ extern unsigned long _getticks(void);
+ 
+ void cfe_bg_init(void);
+--- a/cfe/cfe/main/cfe_timer.c
++++ b/cfe/cfe/main/cfe_timer.c
+@@ -89,7 +89,7 @@ volatile int64_t cfe_ticks;		/* current
+ 
+ int cfe_cpu_speed = CFG_CPU_SPEED;	/* CPU speed in clocks/second */
+ 
+-static unsigned int cfe_clocks_per_usec;
++unsigned int cfe_clocks_per_usec;
+ static unsigned int cfe_clocks_per_tick;
+ 
+ static unsigned long cfe_oldcount;		/* For keeping track of ticks */

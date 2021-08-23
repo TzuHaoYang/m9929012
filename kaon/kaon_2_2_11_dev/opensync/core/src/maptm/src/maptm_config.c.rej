@@ -1,0 +1,11 @@
+--- opensync/core/src/maptm/src/maptm_config.c
++++ opensync/core/src/maptm/src/maptm_config.c
+@@ -496,7 +496,7 @@
+             MaptConf->dmr,
+             MaptConf->ratio,
+             "BR_LAN",
+-            "br-wan",
++            "br1",
+             ipv6prefix,
+             subnetcidr4,
+             ipv4PublicAddress,

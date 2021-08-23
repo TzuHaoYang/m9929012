@@ -1,0 +1,2 @@
+condition: ifeq ($(BUILD_OPENSYNC),y)
+dependson: public/libs/openssl public/libs/libcares public/libs/jansson public/libs/libev public/libs/protobuf-c public/libs/zlib public/libs/curl public/libs/mxml public/apps/mosquitto public/apps/openvswitch private/apps/wlan gpl/libs/mnl gpl/libs/netfilter_conntrack $(if $(BUILD_PLUME),gpl/libs/libreadline gpl/libs/libncurses,) $(if $(BUILD_ARCHERCTL),private/libs/archer)

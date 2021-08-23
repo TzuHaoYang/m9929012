@@ -1,0 +1,66 @@
+diff --git a/src/conf.c b/src/conf.c
+index 8537b29..c8d63f2 100644
+--- a/src/conf.c
++++ b/src/conf.c
+@@ -157,6 +157,7 @@ static HANDLE_FUNC (handle_timeout);
+ static HANDLE_FUNC (handle_user);
+ static HANDLE_FUNC (handle_viaproxyname);
+ static HANDLE_FUNC (handle_disableviaheader);
++static HANDLE_FUNC (handle_disablehttperrors);
+ static HANDLE_FUNC (handle_xtinyproxy);
+ static HANDLE_FUNC (handle_xtinyproxymac);
+ 
+@@ -213,6 +214,7 @@ struct {
+         STDCONF ("syslog", BOOL, handle_syslog),
+         STDCONF ("bindsame", BOOL, handle_bindsame),
+         STDCONF ("disableviaheader", BOOL, handle_disableviaheader),
++        STDCONF ("disablehttperrors", BOOL, handle_disablehttperrors),
+         /* integer arguments */
+         STDCONF ("port", INT, handle_port),
+         STDCONF ("maxclients", INT, handle_maxclients),
+@@ -656,6 +658,19 @@ static HANDLE_FUNC (handle_disableviaheader)
+         return 0;
+ }
+ 
++static HANDLE_FUNC (handle_disablehttperrors)
++{
++        int r = set_bool_arg (&conf->disable_httperrors, line, &match[2]);
++
++        if (r) {
++                return r;
++        }
++
++        log_message (LOG_INFO,
++                     "Disabling sending http errors.");
++        return 0;
++}
++
+ static HANDLE_FUNC (handle_defaulterrorfile)
+ {
+         return set_string_arg (&conf->errorpage_undef, line, &match[2]);
+diff --git a/src/conf.h b/src/conf.h
+index 5c3e260..ecc1a03 100644
+--- a/src/conf.h
++++ b/src/conf.h
+@@ -80,6 +80,7 @@ struct config_s {
+         char *via_proxy_name;
+ 
+         unsigned int disable_viaheader; /* boolean */
++        unsigned int disable_httperrors; /* boolean */
+ 
+         /*
+          * Error page support.  Map error numbers to file paths.
+diff --git a/src/reqs.c b/src/reqs.c
+index 610d286..d5a2d72 100644
+--- a/src/reqs.c
++++ b/src/reqs.c
+@@ -1778,7 +1778,8 @@ fail:
+                 update_stats (STAT_BADCONN);
+         }
+ 
+-        if (connptr->error_variables) {
++        if (connptr->error_variables &&
++            config->disable_httperrors == 0) {
+                 send_http_error_message (connptr);
+         } else if (connptr->show_stats) {
+                 showstats (connptr);

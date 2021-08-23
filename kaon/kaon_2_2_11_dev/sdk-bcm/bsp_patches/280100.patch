@@ -1,0 +1,30 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/kernel/linux-4.1/net/wireless/util.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/kernel/linux-4.1/net/wireless/util.c
+
+@@ -90,8 +90,10 @@
+ 		break;
+ #ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+ 	case IEEE80211_BAND_6GHZ:
+-		if (chan >= 1 && chan <= 233)
+-			return 5940 + chan * 5;
++		if (chan == 2)
++			return 5935;
++		else if (chan >= 1 && chan <= 233)
++			return 5950 + chan * 5;
+ 		break;
+ #endif /* CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT */
+ 	default:
+@@ -111,8 +113,10 @@
+ 	else if (freq >= 4910 && freq <= 4980)
+ 		return (freq - 4000) / 5;
+ #ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+-	else if (freq >= 5945 && freq <= 7125)
+-		return (freq - 5940) / 5;
++	else if (freq == 5935)
++		return 2;
++	else if (freq >= 5955 && freq <= 7125)
++		return (freq - 5950) / 5;
+ #endif /* CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT */
+ 	else if (freq <= 45000) /* DMG band lower limit */
+ 		return (freq - 5000) / 5;

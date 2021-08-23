@@ -1,0 +1,22 @@
+menu "logread"
+    config LOGREAD_LOG_HAS_HOSTNAME
+        bool "Hostname is present in syslog messages"
+        default n
+        help
+            This option is required to parse properly the system logs on some
+            systems.
+
+    config LOGREAD_LOG_HAS_YEAR
+        bool "The syslog timestamp includes the year"
+        default n
+        help
+            This option is required to parse properly the system logs on some
+            systems.
+
+    config LOGREAD_LOG_HAS_LEVEL
+        bool "The syslog log message contains the log level"
+        default n
+        help
+            This option is required to parse properly the system logs on some
+            systems.
+endmenu

@@ -1,0 +1,131 @@
+ESW-2365: enet: increase download network performance by tweaking network driver and scheduler for realtime threads
+
+Increase the NETDEV_WEIGHT. This change modifies how many packets does the
+bcmsw_rx kernel thread read from the network interface, before yield()-ing
+to other tasks.
+
+Lower the maximum time that kernel thread with realtime scheduling priority
+can consume in one cycle, before yield()-ing to other tasks. This prevents
+the realtime thread to consume too much CPU, so that other userspace apps
+can have more CPU time allocated if needed.
+
+Allow multiple of threads with realtime scheduling priority to share the same
+real-time cycle. This prevents one realtime thread to use up all the time
+allocated for realtime threads.
+
+Remove all code that assumes we will be reading from a wifi interface.
+Remove calls to lock()/unlock(). They are already properly done
+in the function surrounded by these locks.
+--- a/bcmdrivers/opensource/net/enet/shared/bcmenet_dma.h
++++ b/bcmdrivers/opensource/net/enet/shared/bcmenet_dma.h
+@@ -80,7 +80,7 @@ int enet_gmac_log_port( void );
+ #if defined(_CONFIG_BCM_VOICE_SUPPORT)
+ #define NETDEV_WEIGHT  16 // lower weight for less voice latency
+ #else
+-#define NETDEV_WEIGHT  32
++#define NETDEV_WEIGHT  128
+ #endif
+ 
+ /*---------------------------------------------------------------------*/
+--- a/bcmdrivers/opensource/net/enet/impl5/bcmenet.c
++++ b/bcmdrivers/opensource/net/enet/impl5/bcmenet.c
+@@ -2110,8 +2110,7 @@ static uint32 bcm63xx_rx(void *ptr, uint
+     unsigned char *pBuf = NULL;
+     struct sk_buff *skb = NULL;
+     int len=0, phy_port_id = -1, no_stat = 0, ret;
+-    uint32 rxpktgood = 0, rxpktprocessed = 0;
+-    uint32 rxpktmax = budget + (budget / 2);
++    uint32 rxpktgood = 0;
+     struct rtnl_link_stats64 *vstats;
+     struct enet_device_stats *estats;
+     FkBuff_t * pFkb = NULL;
+@@ -2162,15 +2161,7 @@ static uint32 bcm63xx_rx(void *ptr, uint
+             }
+         }
+ 
+-        BCM_ENET_RX_DEBUG("Processing Rx packet");
+-        rxpktprocessed++;
+-
+-
+-        if (!is_wifi_port)/*TODO remove is_wifi_port from enet driver*/
+-        {
+-            dev = phyPortId_to_netdev(phy_port_id, gemid);
+-        }
+-
++        dev = phyPortId_to_netdev(phy_port_id, gemid);
+         if(dev == NULL)
+         {
+             /* possibility of corrupted source port in dmaFlag */
+@@ -2198,22 +2189,8 @@ static uint32 bcm63xx_rx(void *ptr, uint
+             pDevCtrl->stats.rx_bytes += len;
+         }
+ 
+-
+-            {
+-#if 1 /*TODO remove is_wifi_port */
+-                if (is_wifi_port)
+-                {
+-                    blog_chnl = 0;
+-                    blog_phy = BLOG_WLANPHY;/* blog rx phy type is WLAN */
+-                }
+-                else
+-#endif
+-                {
+-                    blog_chnl = phy_port_id;/* blog rx channel is switch port */
+-                    blog_phy = BLOG_ENETPHY;/* blog rx phy type is ethernet */
+-
+-                }
+-            }
++        blog_chnl = phy_port_id;/* blog rx channel is switch port */
++        blog_phy = BLOG_ENETPHY;/* blog rx phy type is ethernet */
+ 
+         /* FkBuff_t<data,len> in-placed leaving headroom */
+         pFkb = fkb_init(pBuf, BCM_PKT_HEADROOM,
+@@ -2254,9 +2231,6 @@ static uint32 bcm63xx_rx(void *ptr, uint
+             goto next_rx;
+         }
+ 
+-        if (blogAction != PKT_NORM && is_wifi_port)
+-            pFkb->blog_p->wl_hw_support.is_rx_hw_acc_en = 1;
+-
+ #endif /* CONFIG_BLOG */
+ 
+         /*allocate skb & initialize it using fkb */
+@@ -2266,9 +2240,7 @@ static uint32 bcm63xx_rx(void *ptr, uint
+             pDevCtrl->stats.rx_dropped++;
+             estats->rx_dropped_no_skb++;
+             bcmeapi_kfree_buf_irq(pDevCtrl, pFkb, pBuf);
+-            if ( rxpktprocessed < rxpktmax )
+-                continue;
+-            break;
++            goto next_rx;
+         }
+ 
+         if(bcmeapi_skb_headerinit(len, pDevCtrl, skb, pFkb, pBuf) == BCMEAPI_CTRL_CONTINUE)
+@@ -2280,10 +2252,7 @@ static uint32 bcm63xx_rx(void *ptr, uint
+ 
+         skb->protocol = bcm_type_trans(skb, dev);
+         skb->dev = dev;
+-        if (global.dump_enable) {
+-            DUMP_PKT(skb->data, skb->len);
+-        }
+-        
++
+ #if defined(CONFIG_BCM_CSO)
+         if(pFkb->rx_csum_verified)
+         {
+--- a/bcmdrivers/opensource/net/enet/impl5/Makefile
++++ b/bcmdrivers/opensource/net/enet/impl5/Makefile
+@@ -79,10 +79,10 @@ EXTRA_CFLAGS += -g
+ #EXTRA_CFLAGS +=  -DBCM_ENET_DEBUG_BUILD
+ #EXTRA_CFLAGS +=  -DBCM_ENET_RX_LOG
+ #EXTRA_CFLAGS +=  -DBCM_ENET_TX_LOG
+-EXTRA_CFLAGS +=  -DBCM_ENET_LOG
++#EXTRA_CFLAGS +=  -DBCM_ENET_LOG
+ #EXTRA_CFLAGS +=  -DRXCHANNEL_BYTE_RATE_LIMIT
+ ifneq ($(strip $(BRCM_CHIP)),47189)
+-EXTRA_CFLAGS +=  -DRXCHANNEL_PKT_RATE_LIMIT
++#EXTRA_CFLAGS +=  -DRXCHANNEL_PKT_RATE_LIMIT
+ endif
+ EXTRA_CFLAGS +=  -DVLAN_TAG_FFF_STRIP
+ EXTRA_CFLAGS +=  -DUSE_DEFAULT_EGRESS_QUEUE 

@@ -1,0 +1,10 @@
+bcm-CS00010533606-rb169233.patch
+bcm-CS00010701862-rb169774_rb171572_rb172893_rb173525_rb173702_17_10_157_1501-nl-cac-states-fix.patch
+bcm-CS00010701862-enable-ifdefs.patch
+bcm-CS00010701862-rb173894-fix-dongle-eventmsgs.patch
+bcm-CS00011637381-fix-leaf-client-throughput.patch
+bcm-CS00011783297-fix-csa-wrapper-corrupting-beacon.patch
+bcm-CS00011762011-rb174520_17.10.157.2802-fix-csa-flag-clearing-on-stop.patch
+bcm-CS00011797870-rb_169485_175085_174730-fix-nl80211-radar-event-reports.patch
+bcm-CS00011761900-enable-wlctl-authresp_mac_filter.patch
+plume-bcm-CS00011797870-memleak-hotfix.patch

@@ -1,0 +1,25 @@
+
+Official fix for throughtput drops to kbps after steered between leafs
+
+This patch is only half of fix and other is in archer code:
+patches/private-bcm/bcm-CS00011637381-fix-leaf-client-throughput.patch
+
+From Case: CS00011637381
+Official Patch Name: CS00011637381_official.patch
+Based on: L07P1
+
+--- a/bcmdrivers/broadcom/net/wl/impl69/sys/src/dhd/sys/dhd_linux.c	2020-12-31 15:23:20.070092802 +0800
++++ b/bcmdrivers/broadcom/net/wl/impl69/sys/src/dhd/sys/dhd_linux.c	2021-01-19 14:02:32.075293227 +0800
+@@ -3310,7 +3310,11 @@ dhd_add_flowid(dhd_pub_t * dhdp, int ifi
+ #ifdef DHD_WET
+ 		WET_ENABLED(dhdp) ||
+ #endif /* DHD_WET */
+-		0) {
++		(DHD_IF_ROLE_STA(dhdp, ifidx) &&
++#ifdef DHD_PSTA
++		(DHD_MODE_PSTA_DISABLED == dhd_get_psta_mode(dhdp)) &&
++#endif /* DHD_PSTA */
++		TRUE)) {
+ 		queue = dhd_flow_queue(dhdp, flowid);
+ 		dhd_flow_ring_config_thresholds(dhdp, flowid,
+ 			dhd_queue_budget, queue->max, DHD_FLOW_QUEUE_CLEN_PTR(queue),;

@@ -1,0 +1,93 @@
+#!/bin/bash
+source ${KERNEL_DIR}/.config
+echo "#ifndef __BCM63XX_DT_BINDINGS_H" > ${2}
+echo "#define __BCM63XX_DT_BINDINGS_H" >> ${2}
+echo "Echoing config word ${CONFIG_BCM_ADSL}"
+
+if [ -n "${CONFIG_BCM_CHIP_NUMBER}" ]
+then
+	echo "#define CONFIG_BCM_CHIP_NUMBER ${CONFIG_BCM_CHIP_NUMBER}" >> ${2}
+fi
+
+if [ -n "${CONFIG_BRCM_CHIP_REV}" ]
+then
+	echo "#define CONFIG_BRCM_CHIP_REV ${CONFIG_BRCM_CHIP_REV}" >> ${2}
+fi
+
+if [ "${CONFIG_BCM_ADSL}" == "m" -o "${CONFIG_BCM_ADSL}" == "y" ]
+then
+	echo "#define CONFIG_BCM_ADSL" >> ${2}
+fi
+
+if [ "${CONFIG_BCM_RDPA}" == "m" -o "${CONFIG_BCM_RDPA}" == "y" ]
+then
+	echo "#define CONFIG_BCM_RDPA" >> ${2}
+fi
+
+if [ "${CONFIG_BCM_DHD_RUNNER}" == "m" -o "${CONFIG_BCM_DHD_RUNNER}" == "y" ]
+then
+	echo "#define CONFIG_BCM_DHD_RUNNER" >> ${2}
+fi
+
+if [ "${CONFIG_OPTEE}" == "y" ]
+then
+	echo "#define CONFIG_OPTEE" >> ${2}
+fi
+
+if [ "${CONFIG_BCM_GLB_COHERENCY}" == "y" ]
+then
+	echo "#define CONFIG_BCM_GLB_COHERENCY" >> ${2}
+fi
+
+if [ "${CONFIG_BCM_PCIE_HCD}" == "m" -o "${CONFIG_BCM_PCIE_HCD}" == "y" ]
+then
+	echo "#define CONFIG_BCM_PCIE_HCD" >> ${2}
+fi
+
+if [ -n "${CONFIG_BCM_CMA_RSVMEM}" ]
+then
+	echo "#define CONFIG_BCM_CMA_RSVMEM ${CONFIG_BCM_CMA_RSVMEM}" >> ${2}
+fi
+
+if [ "${CONFIG_DECAWAVE_UWB_SPI}" == "y" ]
+then
+	echo "#define CONFIG_DECAWAVE_UWB_SPI ${CONFIG_DECAWAVE_UWB_SPI}" >> ${2}
+fi
+
+if [ "${CONFIG_PWM_BCM6755}" == "m" -o "${CONFIG_PWM_BCM6755}" == "y" ]
+then
+	echo "#define CONFIG_PWM_BCM6755 ${CONFIG_PWM_BCM6755}" >> ${2}
+fi
+
+if [ "${CONFIG_SPI_BCM63XX_HSSPI}" == "m" -o "${CONFIG_SPI_BCM63XX_HSSPI}" == "y" ]
+then
+	echo "#define CONFIG_SPI_BCM63XX_HSSPI ${CONFIG_SPI_BCM63XX_HSSPI}" >> ${2}
+fi
+
+if [ "${CONFIG_MTD_M25P80}" == "m" -o "${CONFIG_MTD_M25P80}" == "y" ]
+then
+	echo "#define CONFIG_MTD_M25P80 ${CONFIG_MTD_M25P80}" >> ${2}
+fi
+
+if [ "${CONFIG_PSTORE_RAM}" == "m" -o "${CONFIG_PSTORE_RAM}" == "y" ]
+then
+	echo "#define CONFIG_PSTORE_RAM ${CONFIG_PSTORE_RAM}" >> ${2}
+fi
+
+if [ -n "${CONFIG_PSTORE_RAM_ADDRESS}" ]
+then
+	echo "#define CONFIG_PSTORE_RAM_ADDRESS ${CONFIG_PSTORE_RAM_ADDRESS}" >> ${2}
+	echo "#define CONFIG_PSTORE_RAM_ADDRESS_TAG ${CONFIG_PSTORE_RAM_ADDRESS#0x}" >> ${2}
+fi
+
+# Support string defines like:
+# #define SOMETHING "something"
+# The input here will be ' #define "SOMETHING" "something" ' which means
+# we want to remove the first two instances of " but not the rest.
+# So what we do:
+#     - Replace all instances of " AFTER instance 2 with \n
+#     - Replace all remaining instances with nothing
+#     - Replace all instances of \n with "
+cat ${1}|grep \#define|sed -r "s/\"/\n/g3; s/\"//g; s/\n/\"/g">>${2}
+
+echo "#endif /*__BCM63XX_DT_BINDINGS_H */" >> ${2}

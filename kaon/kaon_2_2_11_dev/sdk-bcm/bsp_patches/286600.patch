@@ -1,0 +1,14 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/opensource/net/wfd/impl1/wfd_dev.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/opensource/net/wfd/impl1/wfd_dev.c
+
+@@ -100,7 +100,7 @@
+ #define WFD_BRIDGED_OBJECT_IDX 2
+ #define WFD_BRIDGED_QUEUE_IDX 2
+ 
+-#if defined(BCM_PKTFWD) && (defined(CONFIG_BCM94908) || defined(XRDP))
++#if defined(BCM_PKTFWD)
+ #define WFD_FLCTL /* BPM PktPool Availability based WFD Ingress throttle */
+ #define WFD_FLCTL_PKT_PRIO_FAVOR         4  /* Favor Pkt Prio >= 4 : VI,VO */
+ #define WFD_FLCTL_DROP_CREDITS           32
+

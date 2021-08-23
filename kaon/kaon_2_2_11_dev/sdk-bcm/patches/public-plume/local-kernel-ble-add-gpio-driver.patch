@@ -1,0 +1,105 @@
+--- a/kernel/linux-4.1/drivers/gpio/Makefile
++++ b/kernel/linux-4.1/drivers/gpio/Makefile
+@@ -116,3 +116,4 @@ obj-$(CONFIG_GPIO_XILINX)	+= gpio-xilinx
+ obj-$(CONFIG_GPIO_XTENSA)	+= gpio-xtensa.o
+ obj-$(CONFIG_GPIO_ZEVIO)	+= gpio-zevio.o
+ obj-$(CONFIG_GPIO_ZYNQ)		+= gpio-zynq.o
++obj-$(CONFIG_GPIO_BCM6755)	+= gpio-bcm6755.o
+--- /dev/null
++++ b/kernel/linux-4.1/drivers/gpio/gpio-bcm6755.c
+@@ -0,0 +1,83 @@
++/*
++* <:copyright-BRCM:2016:DUAL/GPL:standard
++*
++*    Copyright (c) 2016 Broadcom
++*    All Rights Reserved
++*
++* Unless you and Broadcom execute a separate written software license
++* agreement governing use of this software, this software is licensed
++* to you under the terms of the GNU General Public License version 2
++* (the "GPL"), available at http://www.broadcom.com/licenses/GPLv2.php,
++* with the following added to such license:
++*
++*    As a special exception, the copyright holders of this software give
++*    you permission to link this software with independent modules, and
++*    to copy and distribute the resulting executable under terms of your
++*    choice, provided that you also meet, for each linked independent
++*    module, the terms and conditions of the license of that module.
++*    An independent module is a module which is not derived from this
++*    software.  The special exception does not apply to any modifications
++*    of the software.
++*
++* Not withstanding the above, under no circumstances may you combine
++* this software in any way with any other Broadcom software provided
++* under a license other than the GPL, without Broadcom's express prior
++* written consent.
++*
++* :>
++*/
++
++#include <linux/init.h>
++#include <linux/gpio.h>
++#include <linux/module.h>
++
++typedef enum
++{
++    kGpioInactive,
++    kGpioActive
++} GPIO_STATE_t;
++
++extern void kerSysSetGpioState(unsigned short bpGpio, GPIO_STATE_t state);
++extern void kerSysSetGpioDir(unsigned short bpGpio);
++extern int kerSysSetGpioDirInput(unsigned short bpGpio);
++extern int kerSysGetGpioValue(unsigned short bpGpio);
++
++
++static int bcm6755_gpio_direction_input(struct gpio_chip *chip, unsigned gpio)
++{
++	kerSysSetGpioDirInput(gpio);
++	return 0;
++}
++
++static int bcm6755_gpio_direction_output(struct gpio_chip *chip, unsigned gpio, int level)
++{
++	kerSysSetGpioDir(gpio);
++	kerSysSetGpioState(gpio, level);
++	return 0;
++}
++
++static int bcm6755_gpio_get_value(struct gpio_chip *chip, unsigned gpio)
++{
++	return kerSysGetGpioValue(gpio);
++}
++
++static void bcm6755_gpio_set_value(struct gpio_chip *chip, unsigned gpio, int value)
++{
++	kerSysSetGpioState(gpio, value);
++}
++
++static struct gpio_chip bcm6755_gpio_chip = {
++	.label            = "BCM6755_GPIO_CHIP",
++	.direction_input  = bcm6755_gpio_direction_input,
++	.direction_output = bcm6755_gpio_direction_output,
++	.get              = bcm6755_gpio_get_value,
++	.set              = bcm6755_gpio_set_value,
++	.base             = 0,
++	.ngpio            = 68,
++};
++
++static int __init bcm6755_gpio_init(void)
++{
++	return gpiochip_add(&bcm6755_gpio_chip);
++}
++arch_initcall(bcm6755_gpio_init);
+--- a/kernel/linux-4.1/drivers/gpio/Kconfig
++++ b/kernel/linux-4.1/drivers/gpio/Kconfig
+@@ -121,6 +121,9 @@ config GPIO_ALTERA
+ 
+ 	  If driver is built as a module it will be called gpio-altera.
+ 
++config GPIO_BCM6755
++	tristate "BCM6755 GPIO support"
++
+ config GPIO_BCM_KONA
+ 	bool "Broadcom Kona GPIO"
+ 	depends on OF_GPIO && (ARCH_BCM_MOBILE || COMPILE_TEST)

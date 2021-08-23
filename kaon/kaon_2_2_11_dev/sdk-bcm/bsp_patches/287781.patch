@@ -1,0 +1,23 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/broadcom/include/bcm963xx/bcm_pktfwd.h
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/broadcom/include/bcm963xx/bcm_pktfwd.h
+
+@@ -2015,6 +2015,7 @@
+     struct osl_info   * osh;
+     struct wl_if      * wlif;           /* 1:1 wl_if extension */
+     struct net_device * net_device;     /* net_device of wl_if */
++    struct d3lut_elem * wds_d3lut_elem; /* d3lut_elem used for WDS */
+ 
+     uint8_t             wl_schedule;    /* wlan thread schedule state */
+     struct {
+@@ -2032,6 +2033,9 @@
+     d3fwd_wlif_stats_t  stats[D3FWD_PRIO_MAX]; /* wlif stats */
+     )
+ 
++    /* flags for each netdevice/wlif */
++    uint32_t            flags;
++
+ };
+ 
+ extern void d3fwd_wlif_stats_dump(d3fwd_wlif_stats_t * d3fwd_wlif_stats,
+

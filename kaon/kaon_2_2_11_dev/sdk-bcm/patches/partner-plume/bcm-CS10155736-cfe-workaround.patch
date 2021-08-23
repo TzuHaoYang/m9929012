@@ -1,0 +1,60 @@
+The device was hanging during reboot test due to a CFE crash.
+This patch provides two workarounds:
+1. properly reboots the device after a CFE crash so that
+   it recovers automatically instead of hanging.
+2. replaces dynamic with a static allocation which
+   prevents the original crash from happening
+--- a/cfe/cfe/arch/arm/common/src/exchandler.c	2020-04-20 01:46:36.809146481 -0700
++++ b/cfe/cfe/arch/arm/common/src/exchandler.c	2020-04-20 01:48:13.626001869 -0700
+@@ -192,7 +192,11 @@
+         tr->r13+0x10, stack[4], stack[5], stack[6], stack[7]);
+ 
+     xprintf("\n");
++#if defined(_BCM947189_)
++    softReset(0);
++#else
+     softReset(60); //set watch dog timer to 60s to give some time for JTAG connection.
++#endif
+ }
+ #endif
+ /*  *********************************************************************
+--- a/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_util.c	2020-04-29 07:18:48.776683575 -0700
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_util.c	2020-04-29 08:07:59.522208682 -0700
+@@ -3631,21 +3631,22 @@
+ }
+ 
+ 
++unsigned char de[262148];
+ int cfe_fs_find_file(const char* fname, unsigned int fsize, 
+                     unsigned int blk, unsigned int bcnt, 
+                     unsigned char** dst, unsigned int *dsize,
+                     unsigned int dst_offs) 
+ { 
+-    unsigned char* de = NULL;
+     int res = -1;
+     unsigned int bstart = 0;
+     unsigned int blk_sz = flash_get_sector_size(0);
+-    
++/*
+     de = KMALLOC(blk_sz, sizeof(void*)); 
+     if (!de) {
+         return res;
+     }
+-
++*/
++ 
+     switch(cfe_fs_get_dentry_type(de, blk_sz, blk, bcnt, &bstart))
+     {
+              case CFE_FS_IMAGE_JFFS2:
+@@ -3658,8 +3659,10 @@
+              default:
+                   break;
+     }
+-
++ 
++/*
+     KFREE(de); 
++*/
+     return res;
+ }
+ 

@@ -1,0 +1,474 @@
+--- a/bcmdrivers/broadcom/net/wl/impl69/main/components/wlioctl/include/wlioctl.h
++++ b/bcmdrivers/broadcom/net/wl/impl69/main/components/wlioctl/include/wlioctl.h
+@@ -2882,7 +2882,8 @@ typedef struct wlc_cac_event {
+ 	uint16 version;
+ 	uint16 length;		/* Total length from version to end of variable scan_status */
+ 	uint16 type;
+-	uint16 pad;		/* reserved */
++	uint8 scan_core;
++	uint8 pad;		/* reserved */
+ 	wl_dfs_status_all_t scan_status;
+ } wlc_cac_event_t;
+ 
+--- a/bcmdrivers/broadcom/net/wl/impl69/main/src/wl/sys/wlc_dfs.c
++++ b/bcmdrivers/broadcom/net/wl/impl69/main/src/wl/sys/wlc_dfs.c
+@@ -476,7 +476,6 @@ wlc_dfs_cac_state_change(wlc_dfs_info_t
+ 		wlc_dfs_cacstate_str(dfs->dfs_cac.status.state),
+ 		wlc_dfs_cacstate_str(newstate)));
+ #endif // endif
+-	dfs->dfs_cac.status.state = newstate;	/* Controlled (logged) state change */
+ 
+ 	event_len = sizeof(wlc_cac_event_t) +
+ 		(DFS_HAS_BACKGROUND_SCAN_CORE(wlc) ? sizeof(wl_dfs_sub_status_t) : 0);
+@@ -490,6 +489,24 @@ wlc_dfs_cac_state_change(wlc_dfs_info_t
+ 	cac_event->version = WLC_E_CAC_STATE_VERSION;
+ 	cac_event->length = event_len;
+ 	cac_event->type = WLC_E_CAC_STATE_TYPE_DFS_STATUS_ALL;
++	cac_event->scan_core = 0;
++	if (dfs->phymode) {
++		cac_event->scan_core = 1;
++	}
++	if (((dfs->dfs_cac.status.state == WL_DFS_CACSTATE_IDLE) ||
++			dfs->dfs_cac.status.state == WL_DFS_CACSTATE_ISM) &&
++			(newstate == WL_DFS_CACSTATE_ISM) && !cac_event->scan_core) {
++#if defined(BCMDBG) || defined(WLMSG_DFS)
++		WL_DFS(("wl%d: Sending dummy event :%s to sync hostapd\n", wlc->pub->unit,
++			wlc_dfs_cacstate_str(WL_DFS_CACSTATE_PREISM_CAC)));
++#endif
++		dfs->dfs_cac.status.state = WL_DFS_CACSTATE_PREISM_CAC;
++		wlc_dfs_get_dfs_status_all(dfs, (uint8*)(&(cac_event->scan_status)),
++			(event_len - sizeof(wlc_cac_event_t) + sizeof(wl_dfs_status_all_t)));
++		wlc_mac_event(wlc, WLC_E_CAC_STATE_CHANGE, NULL, 0, 0, 0,
++			cac_event, event_len);
++	}
++	dfs->dfs_cac.status.state = newstate;	/* Controlled (logged) state change */
+ 	wlc_dfs_get_dfs_status_all(dfs, (uint8*)(&(cac_event->scan_status)),
+ 		(event_len - sizeof(wlc_cac_event_t) + sizeof(wl_dfs_status_all_t)));
+ 	wlc_mac_event(wlc, WLC_E_CAC_STATE_CHANGE, NULL, 0, 0, 0,
+--- a/bcmdrivers/broadcom/net/wl/impl69/main/src/wl/sys/wl_cfg80211.c
++++ b/bcmdrivers/broadcom/net/wl/impl69/main/src/wl/sys/wl_cfg80211.c
+@@ -729,6 +729,10 @@ static s32 wl_notify_connect_status_bss(
+ 		struct net_device *ndev, const wl_event_msg_t *e, void *data);
+ static s32 wl_notify_connect_status(struct bcm_cfg80211 *cfg,
+ 	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static s32 wl_dfs_cac_notify_status(struct bcm_cfg80211 *cfg,
++	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data);
++#endif /* KERNEL_VERSION(4, 19, 0) */
+ static s32 wl_notify_roaming_status(struct bcm_cfg80211 *cfg,
+ 	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data);
+ static s32 wl_notify_scan_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+@@ -1060,6 +1064,11 @@ static int bw2cap[] = { 0, 0, WLC_BW_CAP
+ 	cfg80211_ready_on_channel(cfgdev, cookie, channel, channel_type, duration, GFP_KERNEL);
+ #endif /* WL_CFG80211_P2P_DEV_IF */
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static void
++wl_cfg80211_set_cac_state_change_eventbits(struct bcm_cfg80211 *cfg);
++#endif /* KERNEL_VERSION(4, 19, 0)) */
++
+ #ifdef RSSI_OFFSET
+ static s32 wl_rssi_offset(s32 rssi)
+ {
+@@ -13407,6 +13416,33 @@ exit:
+ }
+ #endif /* WL_SUPPORT_ACS */
+ 
++int wl_chspec_chandef(chanspec_t chanspec,
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
++        struct cfg80211_chan_def *chandef,
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, 0)))
++        struct chan_info *chaninfo,
++#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)) */
++struct wiphy *wiphy);
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static int
++wl_cfg80211_get_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
++	struct cfg80211_chan_def *chandef)
++{
++	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
++	struct net_device *ndev;
++	u32 chspec;
++
++	ndev = bcmcfg_to_prmry_ndev(cfg);
++	wldev_iovar_getint(ndev, "chanspec", &chspec);
++
++	memset(chandef, 0, sizeof(*chandef));
++	wl_chspec_chandef((chanspec_t)chspec, chandef, wiphy);
++
++	return 0;
++}
++#endif /* KERNEL >= 4.19 */
++
+ /** functions called back by the cfg80211 framework */
+ static struct cfg80211_ops wl_cfg80211_ops = {
+ 	.add_virtual_intf = wl_cfg80211_add_virtual_iface,
+@@ -13485,6 +13521,9 @@ static struct cfg80211_ops wl_cfg80211_o
+ #ifdef WL_SAE
+ 	.external_auth = wl_cfg80211_external_auth,
+ #endif /* WL_SAE */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++	.get_channel = wl_cfg80211_get_channel,
++#endif
+ };
+ 
+ s32
+@@ -14140,7 +14179,57 @@ wl_notify_start_auth(struct bcm_cfg80211
+ 	return BCME_OK;
+ }
+ #endif /* WL_SAE */
+-
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static s32
++wl_dfs_cac_notify_status(struct bcm_cfg80211 *cfg,
++	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data)
++{
++	wlc_cac_event_t *cac_event = (wlc_cac_event_t *)data;
++	wl_dfs_status_all_t *scan_status;
++	wl_dfs_sub_status_t  *dfs_sub_status;
++	struct wiphy *wiphy;
++	struct cfg80211_chan_def chandef;
++	struct net_device *ndev;
++	scan_status = &cac_event->scan_status;
++	if (!scan_status) {
++		WL_ERR(("getting scan_status failed\n"));
++		return BCME_ERROR;
++	}
++	WL_DBG(("Enter \n"));
++	if (unlikely(e->status)) {
++		WL_ERR(("status:0x%x \n", e->status));
++		return -1;
++	}
++	ndev = cfgdev_to_wlc_ndev(cfgdev, cfg);
++	wiphy = bcmcfg_to_wiphy(cfg);
++	dfs_sub_status = scan_status->dfs_sub_status;
++	if (!dfs_sub_status) {
++		WL_ERR(("getting dfs_status failed\n"));
++		return BCME_ERROR;
++	}
++	if (wl_chspec_chandef(dfs_sub_status->chanspec, &chandef, wiphy)) {
++		WL_ERR(("chspec_chandef failed\n"));
++		return BCME_ERROR;
++	}
++	if(cac_event->scan_core) {
++		return BCME_OK;
++	}
++	switch (dfs_sub_status->state) {
++		case WL_DFS_CACSTATE_PREISM_CAC:
++			cfg80211_cac_event(ndev, &chandef,
++				NL80211_RADAR_CAC_STARTED, GFP_KERNEL);
++			break;
++		case WL_DFS_CACSTATE_ISM:
++			cfg80211_cac_event(ndev, &chandef,
++				NL80211_RADAR_CAC_FINISHED, GFP_KERNEL);
++			break;
++		default:
++			break;
++	}
++	return BCME_OK;
++}
++#endif /* KERNEL_VERSION(4, 19, 0) */
++ 
+ /* The mainline kernel >= 3.2.0 has support for indicating new/del station
+  * to AP/P2P GO via events. If this change is backported to kernel for which
+  * this driver is being built, then define WL_CFG80211_STA_EVENT. You
+@@ -16971,6 +17060,9 @@ wl_init_event_handler(struct bcm_cfg8021
+ 	cfg->evt_handler[WLC_E_BT_WIFI_HANDOVER_REQ] = wl_notify_bt_wifi_handover_req;
+ #endif // endif
+ 	cfg->evt_handler[WLC_E_CSA_COMPLETE_IND] = wl_csa_complete_ind;
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++	cfg->evt_handler[WLC_E_CAC_STATE_CHANGE] = wl_dfs_cac_notify_status;
++#endif /* KERNEL_VERSION(4, 19, 0) */
+ 	cfg->evt_handler[WLC_E_AP_STARTED] = wl_ap_start_ind;
+ #ifdef CUSTOM_EVENT_PM_WAKE
+ 	cfg->evt_handler[WLC_E_EXCESS_PM_WAKE_EVENT] = wl_check_pmstatus;
+@@ -16988,6 +17080,22 @@ wl_init_event_handler(struct bcm_cfg8021
+ 	cfg->evt_handler[WLC_E_BAND_CHANGE] = wl_cfg80211_band_change;
+ }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static void
++wl_cfg80211_set_cac_state_change_eventbits(struct bcm_cfg80211 *cfg) {
++	wl_eventmsg_buf_t ev_buf;
++	bool enable = TRUE;
++	struct net_device *dev;
++	int err = 0;
++	dev = bcmcfg_to_prmry_ndev(cfg);
++	bzero(&ev_buf, sizeof(wl_eventmsg_buf_t));
++	wl_cfg80211_add_to_eventbuffer(&ev_buf, WLC_E_CAC_STATE_CHANGE, enable);
++	err = wl_cfg80211_apply_eventbuffer(dev, cfg, &ev_buf);
++	return;
++}
++#endif /* KERNEL_VERSION(4, 19, 0) */
++
++
+ #if defined(STATIC_WL_PRIV_STRUCT)
+ static int
+ wl_init_escan_result_buf(struct bcm_cfg80211 *cfg)
+@@ -18658,6 +18766,11 @@ wl_init_priv(struct bcm_cfg80211 *cfg)
+ #if defined(WL_HAPD_WDS)
+ 	wl_cfg80211_init_wds_info(cfg);
+ #endif /* WL_HAPD_WDS */
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++	wl_cfg80211_set_cac_state_change_eventbits(cfg);
++#endif /* KERNEL_VERSION(4, 19, 0)) */
++
+ 	wl_link_down(cfg);
+ 	DNGL_FUNC(dhd_cfg80211_init, (cfg));
+ 	return err;
+@@ -23787,16 +23900,6 @@ wl_cfg80211_set_mac_acl(struct wiphy *wi
+ }
+ #endif /* WL_CFG80211_ACL */
+ 
+-int wl_chspec_chandef(chanspec_t chanspec,
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+-	struct cfg80211_chan_def *chandef,
+-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, \
+-	\
+-	0)))
+-	struct chan_info *chaninfo,
+-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)) */
+-struct wiphy *wiphy);
+-
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
+ int wl_chspec_chandef(chanspec_t chanspec,
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+--- a/bcmdrivers/broadcom/net/wl/impl69/sys/components/wlioctl/include/wlioctl.h
++++ b/bcmdrivers/broadcom/net/wl/impl69/sys/components/wlioctl/include/wlioctl.h
+@@ -2882,7 +2882,8 @@ typedef struct wlc_cac_event {
+ 	uint16 version;
+ 	uint16 length;		/* Total length from version to end of variable scan_status */
+ 	uint16 type;
+-	uint16 pad;		/* reserved */
++	uint8 scan_core;
++	uint8 pad;		/* reserved */
+ 	wl_dfs_status_all_t scan_status;
+ } wlc_cac_event_t;
+ 
+--- a/bcmdrivers/broadcom/net/wl/impl69/sys/src/wl/sys/wlc_dfs.c
++++ b/bcmdrivers/broadcom/net/wl/impl69/sys/src/wl/sys/wlc_dfs.c
+@@ -476,7 +476,6 @@ wlc_dfs_cac_state_change(wlc_dfs_info_t
+ 		wlc_dfs_cacstate_str(dfs->dfs_cac.status.state),
+ 		wlc_dfs_cacstate_str(newstate)));
+ #endif // endif
+-	dfs->dfs_cac.status.state = newstate;	/* Controlled (logged) state change */
+ 
+ 	event_len = sizeof(wlc_cac_event_t) +
+ 		(DFS_HAS_BACKGROUND_SCAN_CORE(wlc) ? sizeof(wl_dfs_sub_status_t) : 0);
+@@ -490,6 +489,24 @@ wlc_dfs_cac_state_change(wlc_dfs_info_t
+ 	cac_event->version = WLC_E_CAC_STATE_VERSION;
+ 	cac_event->length = event_len;
+ 	cac_event->type = WLC_E_CAC_STATE_TYPE_DFS_STATUS_ALL;
++	cac_event->scan_core = 0;
++	if (dfs->phymode) {
++		cac_event->scan_core = 1;
++	}
++	if (((dfs->dfs_cac.status.state == WL_DFS_CACSTATE_IDLE) ||
++			dfs->dfs_cac.status.state == WL_DFS_CACSTATE_ISM) &&
++			(newstate == WL_DFS_CACSTATE_ISM) && !cac_event->scan_core) {
++#if defined(BCMDBG) || defined(WLMSG_DFS)
++		WL_DFS(("wl%d: Sending dummy event :%s to sync hostapd\n", wlc->pub->unit,
++			wlc_dfs_cacstate_str(WL_DFS_CACSTATE_PREISM_CAC)));
++#endif
++		dfs->dfs_cac.status.state = WL_DFS_CACSTATE_PREISM_CAC;
++		wlc_dfs_get_dfs_status_all(dfs, (uint8*)(&(cac_event->scan_status)),
++			(event_len - sizeof(wlc_cac_event_t) + sizeof(wl_dfs_status_all_t)));
++		wlc_mac_event(wlc, WLC_E_CAC_STATE_CHANGE, NULL, 0, 0, 0,
++			cac_event, event_len);
++	}
++	dfs->dfs_cac.status.state = newstate;	/* Controlled (logged) state change */
+ 	wlc_dfs_get_dfs_status_all(dfs, (uint8*)(&(cac_event->scan_status)),
+ 		(event_len - sizeof(wlc_cac_event_t) + sizeof(wl_dfs_status_all_t)));
+ 	wlc_mac_event(wlc, WLC_E_CAC_STATE_CHANGE, NULL, 0, 0, 0,
+--- a/bcmdrivers/broadcom/net/wl/impl69/sys/src/wl/sys/wl_cfg80211.c
++++ b/bcmdrivers/broadcom/net/wl/impl69/sys/src/wl/sys/wl_cfg80211.c
+@@ -729,6 +729,10 @@ static s32 wl_notify_connect_status_bss(
+ 		struct net_device *ndev, const wl_event_msg_t *e, void *data);
+ static s32 wl_notify_connect_status(struct bcm_cfg80211 *cfg,
+ 	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static s32 wl_dfs_cac_notify_status(struct bcm_cfg80211 *cfg,
++	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data);
++#endif /* KERNEL_VERSION(4, 19, 0) */
+ static s32 wl_notify_roaming_status(struct bcm_cfg80211 *cfg,
+ 	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data);
+ static s32 wl_notify_scan_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
+@@ -1060,6 +1064,11 @@ static int bw2cap[] = { 0, 0, WLC_BW_CAP
+ 	cfg80211_ready_on_channel(cfgdev, cookie, channel, channel_type, duration, GFP_KERNEL);
+ #endif /* WL_CFG80211_P2P_DEV_IF */
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static void
++wl_cfg80211_set_cac_state_change_eventbits(struct bcm_cfg80211 *cfg);
++#endif /* KERNEL_VERSION(4, 19, 0)) */
++
+ #ifdef RSSI_OFFSET
+ static s32 wl_rssi_offset(s32 rssi)
+ {
+@@ -13407,6 +13416,33 @@ exit:
+ }
+ #endif /* WL_SUPPORT_ACS */
+ 
++int wl_chspec_chandef(chanspec_t chanspec,
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
++        struct cfg80211_chan_def *chandef,
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, 0)))
++        struct chan_info *chaninfo,
++#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)) */
++struct wiphy *wiphy);
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static int
++wl_cfg80211_get_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
++	struct cfg80211_chan_def *chandef)
++{
++	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
++	struct net_device *ndev;
++	u32 chspec;
++
++	ndev = bcmcfg_to_prmry_ndev(cfg);
++	wldev_iovar_getint(ndev, "chanspec", &chspec);
++
++	memset(chandef, 0, sizeof(*chandef));
++	wl_chspec_chandef((chanspec_t)chspec, chandef, wiphy);
++
++	return 0;
++}
++#endif /* KERNEL >= 4.19 */
++
+ /** functions called back by the cfg80211 framework */
+ static struct cfg80211_ops wl_cfg80211_ops = {
+ 	.add_virtual_intf = wl_cfg80211_add_virtual_iface,
+@@ -13485,6 +13521,9 @@ static struct cfg80211_ops wl_cfg80211_o
+ #ifdef WL_SAE
+ 	.external_auth = wl_cfg80211_external_auth,
+ #endif /* WL_SAE */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++	.get_channel = wl_cfg80211_get_channel,
++#endif
+ };
+ 
+ s32
+@@ -14140,7 +14179,57 @@ wl_notify_start_auth(struct bcm_cfg80211
+ 	return BCME_OK;
+ }
+ #endif /* WL_SAE */
+-
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static s32
++wl_dfs_cac_notify_status(struct bcm_cfg80211 *cfg,
++	bcm_struct_cfgdev *cfgdev, const wl_event_msg_t *e, void *data)
++{
++	wlc_cac_event_t *cac_event = (wlc_cac_event_t *)data;
++	wl_dfs_status_all_t *scan_status;
++	wl_dfs_sub_status_t  *dfs_sub_status;
++	struct wiphy *wiphy;
++	struct cfg80211_chan_def chandef;
++	struct net_device *ndev;
++	scan_status = &cac_event->scan_status;
++	if (!scan_status) {
++		WL_ERR(("getting scan_status failed\n"));
++		return BCME_ERROR;
++	}
++	WL_DBG(("Enter \n"));
++	if (unlikely(e->status)) {
++		WL_ERR(("status:0x%x \n", e->status));
++		return -1;
++	}
++	ndev = cfgdev_to_wlc_ndev(cfgdev, cfg);
++	wiphy = bcmcfg_to_wiphy(cfg);
++	dfs_sub_status = scan_status->dfs_sub_status;
++	if (!dfs_sub_status) {
++		WL_ERR(("getting dfs_status failed\n"));
++		return BCME_ERROR;
++	}
++	if (wl_chspec_chandef(dfs_sub_status->chanspec, &chandef, wiphy)) {
++		WL_ERR(("chspec_chandef failed\n"));
++		return BCME_ERROR;
++	}
++	if(cac_event->scan_core) {
++		return BCME_OK;
++	}
++	switch (dfs_sub_status->state) {
++		case WL_DFS_CACSTATE_PREISM_CAC:
++			cfg80211_cac_event(ndev, &chandef,
++				NL80211_RADAR_CAC_STARTED, GFP_KERNEL);
++			break;
++		case WL_DFS_CACSTATE_ISM:
++			cfg80211_cac_event(ndev, &chandef,
++				NL80211_RADAR_CAC_FINISHED, GFP_KERNEL);
++			break;
++		default:
++			break;
++	}
++	return BCME_OK;
++}
++#endif /* KERNEL_VERSION(4, 19, 0) */
++ 
+ /* The mainline kernel >= 3.2.0 has support for indicating new/del station
+  * to AP/P2P GO via events. If this change is backported to kernel for which
+  * this driver is being built, then define WL_CFG80211_STA_EVENT. You
+@@ -16971,6 +17060,9 @@ wl_init_event_handler(struct bcm_cfg8021
+ 	cfg->evt_handler[WLC_E_BT_WIFI_HANDOVER_REQ] = wl_notify_bt_wifi_handover_req;
+ #endif // endif
+ 	cfg->evt_handler[WLC_E_CSA_COMPLETE_IND] = wl_csa_complete_ind;
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++	cfg->evt_handler[WLC_E_CAC_STATE_CHANGE] = wl_dfs_cac_notify_status;
++#endif /* KERNEL_VERSION(4, 19, 0) */
+ 	cfg->evt_handler[WLC_E_AP_STARTED] = wl_ap_start_ind;
+ #ifdef CUSTOM_EVENT_PM_WAKE
+ 	cfg->evt_handler[WLC_E_EXCESS_PM_WAKE_EVENT] = wl_check_pmstatus;
+@@ -16988,6 +17080,22 @@ wl_init_event_handler(struct bcm_cfg8021
+ 	cfg->evt_handler[WLC_E_BAND_CHANGE] = wl_cfg80211_band_change;
+ }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++static void
++wl_cfg80211_set_cac_state_change_eventbits(struct bcm_cfg80211 *cfg) {
++	wl_eventmsg_buf_t ev_buf;
++	bool enable = TRUE;
++	struct net_device *dev;
++	int err = 0;
++	dev = bcmcfg_to_prmry_ndev(cfg);
++	bzero(&ev_buf, sizeof(wl_eventmsg_buf_t));
++	wl_cfg80211_add_to_eventbuffer(&ev_buf, WLC_E_CAC_STATE_CHANGE, enable);
++	err = wl_cfg80211_apply_eventbuffer(dev, cfg, &ev_buf);
++	return;
++}
++#endif /* KERNEL_VERSION(4, 19, 0) */
++
++
+ #if defined(STATIC_WL_PRIV_STRUCT)
+ static int
+ wl_init_escan_result_buf(struct bcm_cfg80211 *cfg)
+@@ -18658,6 +18766,11 @@ wl_init_priv(struct bcm_cfg80211 *cfg)
+ #if defined(WL_HAPD_WDS)
+ 	wl_cfg80211_init_wds_info(cfg);
+ #endif /* WL_HAPD_WDS */
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
++	wl_cfg80211_set_cac_state_change_eventbits(cfg);
++#endif /* KERNEL_VERSION(4, 19, 0)) */
++
+ 	wl_link_down(cfg);
+ 	DNGL_FUNC(dhd_cfg80211_init, (cfg));
+ 	return err;
+@@ -23787,16 +23900,6 @@ wl_cfg80211_set_mac_acl(struct wiphy *wi
+ }
+ #endif /* WL_CFG80211_ACL */
+ 
+-int wl_chspec_chandef(chanspec_t chanspec,
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+-	struct cfg80211_chan_def *chandef,
+-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 5, 0) && (LINUX_VERSION_CODE <= (3, 7, \
+-	\
+-	0)))
+-	struct chan_info *chaninfo,
+-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)) */
+-struct wiphy *wiphy);
+-
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
+ int wl_chspec_chandef(chanspec_t chanspec,
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))

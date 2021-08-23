@@ -1,0 +1,2 @@
+local-kernel-cfg80211-skip-cac-event-sanity-checks.patch
+local-wl-fix-wlifu-max-no-bridge.patch

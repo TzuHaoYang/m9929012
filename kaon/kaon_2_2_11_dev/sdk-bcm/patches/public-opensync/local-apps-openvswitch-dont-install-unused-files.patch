@@ -1,0 +1,17 @@
+--- a/userspace/public/apps/openvswitch/Makefile
++++ b/userspace/public/apps/openvswitch/Makefile
+@@ -121,10 +121,10 @@ userspace_build:
+ 		); 
+ 	cd $(APP); $(MAKE) 
+ 	cd $(APP); $(MAKE) install-exec
+-	cd $(APP); $(MAKE) install-pkgdataDATA
+-	install -m 777 -d $(INSTALL_DIR)/etc/openvswitch/scripts	
+-	install -m 755 scripts/startopenVS.sh $(INSTALL_DIR)/etc/openvswitch/scripts
+-	install -m 755 scripts/stopopenVS.sh $(INSTALL_DIR)/etc/openvswitch/scripts
++#	cd $(APP); $(MAKE) install-pkgdataDATA
++#	install -m 777 -d $(INSTALL_DIR)/etc/openvswitch/scripts	
++#	install -m 755 scripts/startopenVS.sh $(INSTALL_DIR)/etc/openvswitch/scripts
++#	install -m 755 scripts/stopopenVS.sh $(INSTALL_DIR)/etc/openvswitch/scripts
+ else
+ conditional_build: sanity_check
+ 	@echo "skipping $(APP) (not configured)"

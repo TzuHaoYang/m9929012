@@ -1,0 +1,101 @@
+#
+# In most cases, you only need to modify this first section.
+#
+
+LIB := libstaged.so
+OBJS = staged.o nvc.o
+
+all install: conditional_build
+
+.PHONY: all install
+
+CURR_DIR := $(shell pwd)
+BUILD_DIR := $(subst /userspace, /userspace,$(CURR_DIR))
+BUILD_DIR := $(word 1, $(BUILD_DIR))
+include $(BUILD_DIR)/make.common
+
+ifeq ($(strip $(DESKTOP_LINUX)),y)
+BCM_BLT32_FLAGS := $(BCM_LD_FLAGS)
+endif
+
+LIBS = -ljson-c
+ifneq ($(strip $(BUILD_BRCM_CMS)),)
+LIBS += $(CMS_COMMON_LIBS) -lcms_msg
+else
+LIBS += -lbcm_util -lsys_util
+endif
+
+ifneq ($(strip $(BUILD_BRCM_UNFWLCFG)),)
+conditional_build: $(LIB) generic_private_lib_install
+else
+conditional_build:
+	@echo "skipping  $(LIB)  (not configured)"
+endif
+
+clean: generic_clean
+	rm -f $(INSTALL_DIR)/lib$(BCM_INSTALL_SUFFIX_DIR)/$(LIB)
+	rm -f $(BCM_FSBUILD_DIR)/private/lib/$(LIB)
+
+binaryonly_dist_clean:
+	if [ -a $(LIB) ]; then cp $(LIB) $(LIB)_$(PROFILE).save; fi;
+	rm -f $(INSTALL_DIR)/lib/private/$(LIB)
+	rm -f Makefile.fullsrc
+	rm -f *.o *.d *.d.* core.* *.a output.txt $(LIB)
+	rm -rf *.c *.h test
+
+#
+# Set our CommEngine directory (by splitting the pwd into two words
+# at /userspace and taking the first word only).
+# Then include the common defines under CommEngine.
+#
+#
+# Private apps and libs are allowed to include header files from the
+# private and public directories.
+#
+# WARNING: Do not modify this section unless you understand the
+# license implications of what you are doing.
+#
+ALLOWED_INCLUDE_PATHS := -I.\
+                         -I$(BUILD_DIR)/userspace/public/include  \
+                         -I$(BUILD_DIR)/userspace/public/include/$(OALDIR) \
+                         -I$(BCM_FSBUILD_DIR)/public/include \
+                         -I$(BCM_FSBUILD_DIR)/public/include/json-c \
+                         -I$(BUILD_DIR)/userspace/private/include  \
+                         -I$(BUILD_DIR)/userspace/private/include/$(OALDIR)
+
+# Private apps and libs are allowed to link with libraries from the
+# private and public directories.
+#
+# WARNING: Do not modify this section unless you understand the
+# license implications of what you are doing.
+#
+ALLOWED_LIB_DIRS := /lib:/lib/public:/lib/private
+
+vpath %.c $(CURR_DIR)
+
+%.o: %.c
+	$(CC) -c $(CFLAGS) $(BCM_BLT32_FLAGS) -o $@ $<
+
+$(LIB): $(OBJS)
+	$(CC) -s -Os -fomit-frame-pointer -shared $(CFLAGS) $(BCM_BLT32_FLAGS) -o $(LIB) $(OBJS)
+	install -m 755 $(LIB) $(INSTALL_DIR)/lib
+
+install: all
+	install -m 755 $(LIB) $(INSTALL_DIR)/lib
+
+test: test/test_nvc
+
+test/test_%: test/test_%.o
+	$(CC) -L$(LIBDIR) -L$(EXTRALIBDIR) $(CFLAGS) $(BCM_BLT32_FLAGS) -o $@ $< -Wl,-rpath,$(CMS_LIB_RPATH) $(CMS_LIB_PATH) -lstaged $(LIBS)
+
+#
+# Include the rule for making dependency files.
+# The '-' in front of the second include suppresses
+# error messages when make cannot find the .d files.
+# It will just regenerate them.
+# See Section 4.14 of Gnu Make.
+#
+
+include $(BUILD_DIR)/make.deprules
+
+-include $(OBJS:.o=.d)

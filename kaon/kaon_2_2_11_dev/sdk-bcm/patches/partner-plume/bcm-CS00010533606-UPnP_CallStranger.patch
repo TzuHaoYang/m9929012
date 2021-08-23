@@ -1,0 +1,19 @@
+Patch for UPnP CallStranger attack vulnerability
+
+from: bcm963xx_IGD_UPnP_CallStranger_Patch_20200601.tgz
+
+--- a/userspace/private/apps/upnp/protocol/gena.c
++++ b/userspace/private/apps/upnp/protocol/gena.c
+@@ -166,6 +166,12 @@ int split_url(char *url, char **host, in
+ 	
+ 	if (strlen(*host) == 0)
+ 	    break;
++    else
++	/* Only accept the LAN side clients */
++	{
++	    if (! cmsNet_isAddressOnLanSide(*host))
++	        break;
++	}
+ 
+ 	status = TRUE;
+     } while (0);

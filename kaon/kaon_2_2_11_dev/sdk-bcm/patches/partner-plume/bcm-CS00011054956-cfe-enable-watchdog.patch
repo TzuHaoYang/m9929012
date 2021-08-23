@@ -1,0 +1,177 @@
+ESW-5819: Enable watchdog in CFE to recover the system hang BCM5.02L07
+
+Enable 10 seconds watchdog and stop it if
+  1) user enters the CFE
+  2) ready to enter Linux kernel
+  3) CFE enters TFTP recovery mode
+
+Signed-off-by: Jack Lu <jlu@plume.com>
+--- a/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_cmd.c
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_cmd.c
+@@ -108,6 +108,9 @@
+ static struct optee_boot_param_t params;
+ static char derived_device_key[] = "key derrived from otped device key";
+ #endif /* BCM_OPTEE */
++#if defined(_BCM947189_)
++extern void bcm_cmn_wd_set(unsigned int delay, unsigned int en);
++#endif
+ 
+ #if defined(BUILD_BOOTCONFIG)
+ #include "cfe_bc.h"
+@@ -1074,6 +1077,14 @@
+ #ifdef CONFIG_CFE_FAILSAFE_BOOT
+     cfe_boot_st_track();
+ #endif
++
++#if defined(_BCM947189_)
++    /* ready to jump to linux, stop WDT */
++    //printf("Ready to jump to Linux, stop WDT\n");
++    bcm_cmn_wd_set(0, 0);
++    MISC->chipcontrol = 0;
++#endif
++
+     cfe_start(la->la_entrypt);
+ }
+ 
+@@ -1839,6 +1850,11 @@
+     }
+ 
+ #if defined(BUILD_BOOTCONFIG)
++#if defined(_BCM947189_)
++    /* Stop WDT before entering TFTP recovery */
++    bcm_cmn_wd_set(0, 0);
++    MISC->chipcontrol = 0;
++#endif
+     /* if we got to here, it means there is no valid image on flash */
+     /* try TFTP recovery */
+     rv = flash_recovery();
+@@ -5906,6 +5922,8 @@
+ 
+ void bcm63xx_run_ex(int breakIntoCfe, int skip_check_memcfg)
+ {
++    int goAuto = 0;
++
+     printSysInfo();
+ #if !defined(_BCM963268_) && !defined(_BCM963381_) && !defined(_BCM96838_) &&\
+     !defined(_BCM96858_) && !defined(_BCM96848_)
+@@ -5919,6 +5937,23 @@
+         }
+     }
+ #endif
++#if defined(_BCM947189_)
++    if (!breakIntoCfe)
++    {
++        if (MISC->chipcontrol < 3)
++        {
++            //printf("===>Start 10 second WDT, cnt=%lu\n", MISC->chipcontrol); 
++            bcm_cmn_wd_set(10, 1);
++            MISC->chipcontrol++;
++        }
++        else
++        {
++            printf("===>Fail to boot 3 times, don't start WDT\n");
++            MISC->chipcontrol = 0;
++        }
++    }
++#endif
++
+ /* Exception case handling to detect A0 image on B0 and vice versa */
+ #if defined(_BCM963138_)
+     {
+@@ -5989,7 +6024,7 @@
+ 
+ #endif
+ 
+-    if ((g_disable_console == true) || ((!breakIntoCfe) && runDelay(bootInfo.bootDelay))) {
++    if ((g_disable_console == true) || ((!breakIntoCfe) && (goAuto = runDelay(bootInfo.bootDelay)))) {
+         run_info_t ar = { 0 };
+ 
+         preboot_init();
+@@ -6004,9 +6039,24 @@
+         } else if (ar.boot_opt == 'h') {
+             ar.img_id[id_img_boot] = bootInfo.hostFileName;
+         } 
++#if defined(_BCM947189_)
++        if (ar.boot_opt != 'f') {
++            bcm_cmn_wd_set(0, 0);
++            MISC->chipcontrol = 0;
++        }
++#endif
+         auto_run(&ar);        // never returns
+     }
+ 
++#if defined(_BCM947189_)
++    if (!goAuto)
++    {
++        bcm_cmn_wd_set(0, 0);
++        MISC->chipcontrol = 0;
++        //printf("Stop in CFE, stop WDT and clear counter\n");
++    }
++#endif
++
+ #ifdef CONFIG_CFE_FAILSAFE_BOOT
+ /* disable watchdog; stop tracking failsafe boot */
+         cfe_boot_st_complete();
+--- a/cfe/cfe/board/common/src/bcm63xx_common.c
++++ b/cfe/cfe/board/common/src/bcm63xx_common.c
+@@ -101,10 +101,13 @@
+         WDTIMER->WD0Ctl = (en>>16);
+         WDTIMER->WD0Ctl = (en&0xffff);
+ #elif defined(_BCM947189_)
+-        /*
+-         * Watchdog reset - TODO: Get PLL freq to calculate the watchdog counter
+-         * value.
+-         */
++        if (en == 0xFF0000FF) {
++            /* enable watchdog */
++            GPIO_WATCHDOG->watchdog = delay * (WD_MS_TICK * 1000);
++        }
++        else {
++            GPIO_WATCHDOG->watchdog = 0; 
++        }
+ #elif defined (_BCM96858_) || defined(_BCM963158_) || defined (_BCM96846_) || defined (_BCM96856_) || defined (_BCM963178_)  || defined(_BCM947622_) || defined(_BCM96878_)
+         WDTIMER0->WatchDogDefCount = delay*FPERIPH_WD;
+         WDTIMER0->WatchDogCtl = (en>>16);
+--- a/shared/opensource/flash/nandflash.c
++++ b/shared/opensource/flash/nandflash.c
+@@ -2136,9 +2136,17 @@
+     do
+     {
+         data = NAND->NandIntfcStatus;
++#if defined(_BCM947189_)
++    }  while(((status_mask & data) != status_mask) && (++poll_count < nand_poll_max)); 
++#else		
+     } while(!(status_mask & data) && (++poll_count < nand_poll_max));
+-
++#endif	
++	   
++#if defined(_BCM947189_)
++    if((status_mask & NAND->NandIntfcStatus) != status_mask)
++#else		
+     if(!(status_mask & NAND->NandIntfcStatus))
++#endif	
+     {
+         printf("Status wait timeout: nandsts=0x%8.8lx mask=0x%8.8lx, count="
+             "%lu\n", NAND->NandIntfcStatus, status_mask, poll_count);
+@@ -2150,7 +2158,11 @@
+ 
+ extern inline int nandflash_wait_cmd(void)
+ {
++#if defined(_BCM947189_)
++    return nandflash_wait_status(NIS_CTLR_READY | NIS_FLASH_READY); 	
++#else
+     return nandflash_wait_status(NIS_CTLR_READY);
++#endif	
+ } /* nandflash_wait_cmd */
+ 
+ extern inline int nandflash_wait_device(void)
+--- a/shared/opensource/include/bcm963xx/47189_map_part.h
++++ b/shared/opensource/include/bcm963xx/47189_map_part.h
+@@ -350,6 +350,7 @@
+ #define GPIO_NUM_MAX     32
+ #define GPIO_IN          0
+ #define GPIO_OUT         1
++#define WD_MS_TICK       32 /* 32KHz clock */
+ 
+ /*
+  * Clock Control

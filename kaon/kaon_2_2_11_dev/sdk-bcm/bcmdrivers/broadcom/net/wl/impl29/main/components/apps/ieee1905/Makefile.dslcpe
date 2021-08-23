@@ -1,0 +1,205 @@
+#
+# Linux ieee1905 Makefile
+#
+# Copyright 2018 Broadcom
+#
+# This program is the proprietary software of Broadcom and/or
+# its licensors, and may only be used, duplicated, modified or distributed
+# pursuant to the terms and conditions of a separate, written license
+# agreement executed between you and Broadcom (an "Authorized License").
+# Except as set forth in an Authorized License, Broadcom grants no license
+# (express or implied), right to use, or waiver of any kind with respect to
+# the Software, and Broadcom expressly reserves all rights in and to the
+# Software and all intellectual property rights therein.  IF YOU HAVE NO
+# AUTHORIZED LICENSE, THEN YOU HAVE NO RIGHT TO USE THIS SOFTWARE IN ANY
+# WAY, AND SHOULD IMMEDIATELY NOTIFY BROADCOM AND DISCONTINUE ALL USE OF
+# THE SOFTWARE.
+#
+# Except as expressly set forth in the Authorized License,
+#
+# 1. This program, including its structure, sequence and organization,
+# constitutes the valuable trade secrets of Broadcom, and you shall use
+# all reasonable efforts to protect the confidentiality thereof, and to
+# use this information only in connection with your use of Broadcom
+# integrated circuit products.
+#
+# 2. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED
+# "AS IS" AND WITH ALL FAULTS AND BROADCOM MAKES NO PROMISES,
+# REPRESENTATIONS OR WARRANTIES, EITHER EXPRESS, IMPLIED, STATUTORY, OR
+# OTHERWISE, WITH RESPECT TO THE SOFTWARE.  BROADCOM SPECIFICALLY
+# DISCLAIMS ANY AND ALL IMPLIED WARRANTIES OF TITLE, MERCHANTABILITY,
+# NONINFRINGEMENT, FITNESS FOR A PARTICULAR PURPOSE, LACK OF VIRUSES,
+# ACCURACY OR COMPLETENESS, QUIET ENJOYMENT, QUIET POSSESSION OR
+# CORRESPONDENCE TO DESCRIPTION. YOU ASSUME THE ENTIRE RISK ARISING
+# OUT OF USE OR PERFORMANCE OF THE SOFTWARE.
+#
+# 3. TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL
+# BROADCOM OR ITS LICENSORS BE LIABLE FOR (i) CONSEQUENTIAL, INCIDENTAL,
+# SPECIAL, INDIRECT, OR EXEMPLARY DAMAGES WHATSOEVER ARISING OUT OF OR
+# IN ANY WAY RELATING TO YOUR USE OF OR INABILITY TO USE THE SOFTWARE EVEN
+# IF BROADCOM HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES; OR (ii)
+# ANY AMOUNT IN EXCESS OF THE AMOUNT ACTUALLY PAID FOR THE SOFTWARE ITSELF
+# OR U.S. $1, WHICHEVER IS GREATER. THESE LIMITATIONS SHALL APPLY
+# NOTWITHSTANDING ANY FAILURE OF ESSENTIAL PURPOSE OF ANY LIMITED REMEDY.
+#
+# $Id: Makefile 712953 2017-07-27 06:29:01Z $
+#
+
+export USEBCMUSCHED = 1
+
+# Create a EXE to test it individually
+export CREATE_IEEE1905EXE = 1
+CURR_DIR := $(shell pwd)
+BUILD_DIR=$(word 1, $(subst /bcmdrivers, /bcmdrivers,$(shell pwd)))
+#include $(BUILD_DIR)/make.common
+
+IEEE1905INSTALLDIR = $(INSTALLDIR)
+
+CFLAGS  +=  $(if $(WLAN_ComponentIncPath),$(WLAN_ComponentIncPath),$(addprefix -I,$(wildcard $(SRCBASE)/shared/bcmwifi/include)))
+CFLAGS	+= -I.  -I$(TOP)/shared -I$(SRCBASE)/include -I$(WPSSOURCE_DIR)/common/include -I$(SRCBASE)/include/bcmcrypto -I$(SRCBASE)/../components/bcmcrypto/include -I$(SRCBASE)/../components/wlioctl/include -I$(SRCBASE)/../components/proto/include -I$(SRCBASE)/../components/shared/proto -I$(SRCBASE)/common/include/proto -I$(WPSSOURCE_DIR)/brcm_apps/include ${WLAN_StdIncPathA} -Wall -Werror  -fPIC
+CFLAGS  += -DWIRELESS -DSUPPORT_BRIDGE_DEDICATED_PORT -DSUPPORT_FBCTL
+CFLAGS  += -DSUPPORT_IEEE1905_AUTO_WDS -DSUPPORT_FCCTL
+ifeq ($(USEBCMUSCHED),1)
+CFLAGS  += -DUSEBCMUSCHED
+endif #USEBCMUSCHED
+
+CFLAGS += -Wno-strict-aliasing -DDSLCPE -DDSLCPE_ENDIAN -DDSLCPE_VIS_WL_IO -I$(SRCDIR)/shared/bcmwifi/include/  -DMULTIAP \
+		  -I$(SRCDIR)/common/include/ \
+		  -I$(SRCDIR)/include/ -I../include/ \
+		  -I$(BCM_FSBUILD_DIR)/public/include/libxml2 \
+		  -I$(BCM_FSBUILD_DIR)/public/include/json-c \
+		  -I$(BUILD_DIR)/userspace/private/libs/cms_core \
+		  -I$(BUILD_DIR)/userspace/private/libs/cms_core/linux \
+		   -I$(BUILD_DIR)/userspace/private/include  \
+		   -I$(BUILD_DIR)/userspace/public/include  \
+		   -I$(BUILD_DIR)/userspace/public/include/linux  \
+		  -I$(BUILD_DIR)/userspace/private/libs/wlcsm/include \
+		  -I$(BUILD_DIR)/userspace/private/apps/wlan/wlcsm/include \
+		  -I$(BUILD_DIR)/userspace/private/apps/wlan/src/router/shared \
+		  -I$(SRCDIR)/../components/opensource/libxml2/include/ -I$(SRCDIR)/../components/shared/ -DPROG="\"$(PACKAGE)\""
+
+CFLAGS += -I$(INC_BRCMDRIVER_PUB_PATH)/$(BRCM_BOARD)  \
+		  -I$(INC_BRCMDRIVER_PRIV_PATH)/$(BRCM_BOARD) \
+		  -I$(INC_BRCMSHARED_PUB_PATH)/$(BRCM_BOARD)
+# CFLAGS  += -DSUPPORT_IEEE1905_FM -DWANDEV_SUPPORT -DIEEE1905_KERNEL_MODULE_PB_SUPPORT -DSUPPORT_ETHSWCTL
+
+# Generate M1 and M2 Locally for IEEE1905 onboarding
+CFLAGS += -DMULTIAP_LOCALM1M2
+
+# BUILD_1905_CMS is defined in wlan Makefile to switch on/off 1905 CMS
+ifneq ($(strip $(BUILD_1905_NOCMS)),)
+CFLAGS :=$(filter-out -DBRCM_CMS_BUILD,$(CFLAGS))
+CFLAGS :=$(filter-out -DSUPPORT_1905_TOPOLOGY_WEB_PAGE,$(CFLAGS))
+out_include := -include^$(BUILD_DIR)/cms_dmp_flags.h
+E :=
+S :=$E $E
+CFLAGS :=$(subst $(S),^,$(CFLAGS))
+CFLAGS :=$(subst ^,$(S),$(subst $(out_include),,$(CFLAGS)))
+endif
+
+IEEE1905_LIB	:= libieee1905.so
+IEEE1905_LIB_SRCS1	:= $(shell find . -name "ieee*.c")
+IEEE1905_LIB_SRCS1_TMP := $(IEEE1905_LIB_SRCS1)
+IEEE1905_LIB_SRCS1 = $(filter-out ./ieee1905_main.c, $(IEEE1905_LIB_SRCS1_TMP))
+IEEE1905_LIB_OBJS1	:= $(sort $(IEEE1905_LIB_SRCS1:.c=.o))
+
+ifeq ($(CREATE_IEEE1905EXE), 1)
+IEEE1905_EXE	:= ieee1905
+IEEE1905_EXE_SRCS1	:= $(shell find . -name "ieee*.c")
+IEEE1905_EXE_OBJS1	:= $(sort $(IEEE1905_EXE_SRCS1:.c=.o))
+endif #CREATE_IEEE1905EXE
+
+EXE2	:= i5ctl
+LN2	:= i5
+SRCS2	:= $(shell find . -name "i5ctl*.c")
+OBJS2	:= $(SRCS2:.c=.o)
+
+EXE3	:= ncap
+SRCS3	:= $(shell find . -name "i5ncap*.c")
+OBJS3	:= $(SRCS3:.c=.o)
+
+LIB1	:= libi5api.so
+LIBOBJS1:= i5api.o
+
+LIBS = $(LIB1) $(EXTRA_LDFLAGS)
+LIBS += -L$(TOP)/shared -L$(INSTALLDIR)/shared/usr/lib -lwlbcmshared -lgcc -lpthread
+LIBS += -L$(TOP)/nvram -L$(INSTALLDIR)/lib -lnvram -lbcm_util -lbcm_flashutil -lbcm_boardctl -lgen_util -lsys_util
+LIBS += -L$(TOP)/libbcmcrypto -L$(INSTALLDIR)/libbcmcrypto/usr/lib -lwlbcmcrypto
+ifeq ($(strip $(BUILD_BRCM_UNFWLCFG)),)
+LIBS += -lwlcsm
+else
+ALLOWED_LIB_DIRS := /lib:/lib/public:/lib/private
+LIB_RPATH = $(INSTALL_DIR)$(subst :,:$(INSTALL_DIR),$(ALLOWED_LIB_DIRS))
+USR_LDFLAGS += -Wl,-rpath-link=$(LIB_RPATH)
+LIBS += $(USR_LDFLAGS)
+endif
+
+ifeq ($(strip $(BUILD_1905_NOCMS)),)
+
+ifneq ($(strip $(BUILD_BRCM_CMS)),)
+LIBS += -L$(INSTALLDIR)/lib -lcms_msg $(CMS_COMMON_LIBS) -lcms_util $(CMS_CORE_LIBS) -lcms_dal -ldl
+endif
+
+ifneq ($(BRCM_1905_TOPOLOGY_WEB_PAGE),)
+#CFLAGS += -DSUPPORT_1905_TOPOLOGY_WEB_PAGE
+CFLAGS += -I$(BCM_FSBUILD_DIR)/public/include
+CFLAGS += -I$(BCM_FSBUILD_DIR)/public/include/websockets
+CFLAGS += -I$(BUILD_DIR)/userspace/public/libs/httpdshared
+LIBS += -lwebsockets -lssl -lcrypto -lhttpdshared 
+endif
+
+endif
+
+
+ifneq ($(strip $(BUILD_ETHSWCTL)),)
+LIBS +=  -lethswctl
+endif
+
+ifeq ($(CREATE_IEEE1905EXE), 1)
+all: $(LIB1) $(IEEE1905_EXE) $(IEEE1905_LIB) $(EXE2) $(EXE3)
+else
+all: $(LIB1) $(IEEE1905_LIB) $(EXE2) $(EXE3)
+endif
+
+$(LIB1): $(LIBOBJS1)
+	$(CC) -fPIC -shared -o $@ $?
+
+$(IEEE1905_LIB): $(IEEE1905_LIB_OBJS1) $(LIB1)
+	$(CC) -fPIC -shared -o $@ $(IEEE1905_LIB_OBJS1) $(LIBS)
+
+$(IEEE1905_EXE) $(EXE2) $(EXE3): $(LIB1)
+
+$(IEEE1905_EXE): $(IEEE1905_EXE_OBJS1)
+	$(CC) -o $@ $(IEEE1905_EXE_OBJS1) $(LIBS)
+
+$(EXE2): $(OBJS2)
+	$(CC) -o $@ $(OBJS2) $(LIBS)
+
+$(EXE3): $(OBJS3)
+	$(CC) -o $@ $(OBJS3) $(LIBS)
+
+install: all
+	install -d $(IEEE1905INSTALLDIR)/usr/sbin/
+	install -d $(IEEE1905INSTALLDIR)/usr/lib/
+	install $(IEEE1905_LIB) $(IEEE1905INSTALLDIR)/usr/lib/
+	install $(EXE2) $(IEEE1905INSTALLDIR)/usr/sbin/
+	install $(EXE3) $(IEEE1905INSTALLDIR)/usr/sbin/
+	install $(LIB1) $(IEEE1905INSTALLDIR)/usr/lib/
+	$(STRIP) $(IEEE1905INSTALLDIR)/usr/lib/$(IEEE1905_LIB)
+	$(STRIP) $(IEEE1905INSTALLDIR)/usr/sbin/$(EXE2)
+	$(STRIP) $(IEEE1905INSTALLDIR)/usr/sbin/$(EXE3)
+	$(STRIP) $(IEEE1905INSTALLDIR)/usr/lib/$(LIB1)
+ifeq ($(CREATE_IEEE1905EXE), 1)
+	install $(IEEE1905_EXE) $(IEEE1905INSTALLDIR)/usr/sbin/
+	$(STRIP) $(IEEE1905INSTALLDIR)/usr/sbin/$(IEEE1905_EXE)
+endif #CREATE_IEEE1905EXE
+
+clean:
+	rm -f *.o *.a *.so $(IEEE1905_LIB) $(LIB1) $(IEEE1905_EXE) $(EXE2) $(EXE3)
+	rm -f $(IEEE1905INSTALLDIR)/usr/lib/$(IEEE1905_LIB)
+	rm -f $(IEEE1905INSTALLDIR)/usr/lib/$(LIB1)
+	rm -f $(IEEE1905INSTALLDIR)/usr/sbin/$(EXE2)
+	rm -f $(IEEE1905INSTALLDIR)/usr/sbin/$(EXE3)
+ifeq ($(CREATE_IEEE1905EXE), 1)
+	rm -f $(IEEE1905INSTALLDIR)/usr/sbin/$(IEEE1905_EXE)
+endif #CREATE_IEEE1905EXE

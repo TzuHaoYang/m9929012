@@ -1,0 +1,25 @@
+--- a/userspace/gpl/apps/busybox/Makefile
++++ b/userspace/gpl/apps/busybox/Makefile
+@@ -54,6 +54,11 @@ $(APP)/Makefile: $(APP).tar.bz2 Makefile
+ 	@echo "$(APP) is untarred"
+ 	echo "*********************Applying CMS patches to $(APP)"
+ 	patch -p1 -b -s -d$(APP) < $(APP).patch
++	for p in patches/*.patch;                       \
++	do                                              \
++		patch -p1 -d$(APP) < "$$p";             \
++	done
++
+ 	touch $@
+ 
+ # Depend on $(APP)/Makefile so that tar progress should be done only once
+@@ -90,6 +95,10 @@ $(APP)_vanilla/Makefile: $(APP).tar.bz2
+ 	@echo "$(APP)_vanilla is untarred"
+ 	echo "*********************Applying common build patches to $(APP)"
+ 	patch -p1 -b -s -d$(APP)_vanilla < $(APP)_vanilla.patch
++	for p in patches/*.patch;                       \
++	do                                              \
++		patch -p1 -d$(APP)_vanilla < "$$p";     \
++	done
+ 	touch $@
+ 
+ # Depend on $(APP)_vanilla/configure so that tar progress should be done only once

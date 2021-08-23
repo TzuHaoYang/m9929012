@@ -1,0 +1,24 @@
+--- kernel/linux-4.1/net/wireless/mlme.c
++++ kernel/linux-4.1/net/wireless/mlme.c
+@@ -780,11 +780,21 @@ void cfg80211_cac_event(struct net_devic
+ 
+ 	trace_cfg80211_cac_event(netdev, event);
+ 
++	/* The following #if is as per Praveen's
++	 * recommendation with regards to some kernel
++	 * warnings that were seen on the backported logic.
++	 *
++	 * Looking at the chandef handling in this function,
++	 * it should be safe as far as null-deref safety
++	 * goes.
++	 */
++#if 0
+ 	if (WARN_ON(!wdev->cac_started && event != NL80211_RADAR_CAC_STARTED))
+ 		return;
+ 
+ 	if (WARN_ON(!wdev->chandef.chan))
+ 		return;
++#endif
+ 
+ 	switch (event) {
+ 	case NL80211_RADAR_CAC_FINISHED:

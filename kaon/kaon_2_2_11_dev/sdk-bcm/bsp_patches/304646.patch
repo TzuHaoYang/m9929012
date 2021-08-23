@@ -1,0 +1,12 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/userspace/private/libs/wlmdm/src/chanspec.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/userspace/private/libs/wlmdm/src/chanspec.c
+
+@@ -741,6 +741,7 @@
+             else
+                 min_ch = CH_MIN_6G_CHANNEL;
+             ch_interval = CH_20MHZ_APART;
++            chanspec->ctlsb_index = 0;
+             break;
+         case WL_CHANSPEC_BW_40:
+             min_ch = CH_MIN_6G_40M_CHANNEL;

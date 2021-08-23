@@ -1,0 +1,131 @@
+ESW-2365: kernel: apply patch to enable SO_NETFILTER_BYPASS socket option
+
+The network throughput in the transmit path is increased by around
+50 Mbps, if the socket option is set, while there is no discernible
+degradation for the throughput if socket option is not set.
+
+Copied from qsdk53:
+
+commit 3af90a4de7de73df66942beb0f8755405a488465
+Author: Mitja HORVAT <mitja@plumewifi.com>
+Date:   Wed Mar 14 14:58:09 2018 +0100
+
+    PIR-10476: Implement setsockopt() option SO_NETFILTER_BYPASS.
+
+    This option, when enabled on a socket, all skb's related to the socket
+    bypass normal netfilter hooks.
+
+    This denies any firewall benefits for this socket, but the performance
+    increase is somewhat dramatic.
+
+    This is mainly used by st_ookla.
+
+--- a/kernel/linux-4.1/include/linux/netfilter.h
++++ b/kernel/linux-4.1/include/linux/netfilter.h
+@@ -6,6 +6,7 @@
+ #include <linux/net.h>
+ #include <linux/if.h>
+ #include <linux/in.h>
++#include <linux/ip.h>
+ #include <linux/in6.h>
+ #include <linux/wait.h>
+ #include <linux/list.h>
+@@ -147,6 +148,8 @@ static inline bool nf_hooks_active(u_int
+ #endif
+ 
+ int nf_hook_slow(struct sk_buff *skb, struct nf_hook_state *state);
++int sock_is_bypass(struct sock *s);
++void tcp_v4_early_demux(struct sk_buff *skb);
+ 
+ /**
+  *	nf_hook_thresh - call a netfilter hook
+@@ -155,6 +158,7 @@ int nf_hook_slow(struct sk_buff *skb, st
+  *	okfn must be invoked by the caller in this case.  Any other return
+  *	value indicates the packet has been consumed by the hook.
+  */
++
+ static inline int nf_hook_thresh(u_int8_t pf, unsigned int hook,
+ 				 struct sock *sk,
+ 				 struct sk_buff *skb,
+@@ -163,6 +167,28 @@ static inline int nf_hook_thresh(u_int8_
+ 				 int (*okfn)(struct sock *, struct sk_buff *),
+ 				 int thresh)
+ {
++	struct sock *tsk = (sk != NULL) ? sk : skb->sk;
++
++	while (tsk == NULL)
++	{
++		struct iphdr *iph;
++
++		if (pf != NFPROTO_IPV4) break;
++
++		iph = (struct iphdr *)skb_network_header(skb);
++		if (iph == NULL) break;
++
++		if (iph->protocol != IPPROTO_TCP) break;
++
++		tcp_v4_early_demux(skb);
++
++		tsk = skb->sk;
++
++		break;
++	}
++
++	if (tsk != NULL && sock_is_bypass(tsk)) return 1;
++
+ 	if (nf_hooks_active(pf, hook)) {
+ 		struct nf_hook_state state;
+ 
+--- a/kernel/linux-4.1/include/net/sock.h
++++ b/kernel/linux-4.1/include/net/sock.h
+@@ -724,6 +724,7 @@ enum sock_flags {
+ #if defined(CONFIG_BCM_MPTCP) && defined(CONFIG_BCM_KF_MPTCP)
+ 	SOCK_MPTCP, /* MPTCP set on this socket */
+ #endif
++	SOCK_NETFILTER_BYPASS, /* Skip NF_HOOKS for this socket */
+ };
+ 
+ #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
+--- a/kernel/linux-4.1/include/uapi/asm-generic/socket.h
++++ b/kernel/linux-4.1/include/uapi/asm-generic/socket.h
+@@ -87,4 +87,6 @@
+ #define SO_ATTACH_BPF		50
+ #define SO_DETACH_BPF		SO_DETACH_FILTER
+ 
++#define SO_NETFILTER_BYPASS	60
++
+ #endif /* __ASM_GENERIC_SOCKET_H */
+--- a/kernel/linux-4.1/net/core/sock.c
++++ b/kernel/linux-4.1/net/core/sock.c
+@@ -998,6 +998,10 @@ set_rcvbuf:
+ 					 sk->sk_max_pacing_rate);
+ 		break;
+ 
++	case SO_NETFILTER_BYPASS:
++		sock_valbool_flag(sk, SOCK_NETFILTER_BYPASS, valbool);
++		break;
++
+ 	default:
+ 		ret = -ENOPROTOOPT;
+ 		break;
+@@ -3018,4 +3022,10 @@ static int __init proto_init(void)
+ 
+ subsys_initcall(proto_init);
+ 
++int sock_is_bypass(struct sock *s)
++{
++    return sock_flag(s, SOCK_NETFILTER_BYPASS);
++}
++EXPORT_SYMBOL(sock_is_bypass);
++
+ #endif /* PROC_FS */
+--- a/kernel/linux-4.1/net/ipv4/tcp_ipv4.c
++++ b/kernel/linux-4.1/net/ipv4/tcp_ipv4.c
+@@ -1763,6 +1763,7 @@ void tcp_v4_early_demux(struct sk_buff *
+ 		}
+ 	}
+ }
++EXPORT_SYMBOL(tcp_v4_early_demux);
+ 
+ /* Packet is added to VJ-style prequeue for processing in process
+  * context, if a reader task is waiting. Apparently, this exciting

@@ -1,0 +1,23 @@
+Increase the frequency of RS messages
+
+odhcp6c doesn't have any options for controlling the frequency or number
+of RA messages. This patch fixes some of the hardcoded constants to work
+better with OpenSync:
+
+- Change the deley between Router Solicitation messages from 4 to 1
+  second
+- Change the maximum number of sent RS messages from 3 to 15
+
+--- a/src/ra.c
++++ b/src/ra.c
+@@ -154,8 +154,8 @@ static void ra_send_rs(int signal __attr
+ 
+ 	sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+ 
+-	if (++rs_attempt <= 3)
+-		alarm(4);
++	if (++rs_attempt <= 15)
++		alarm(1);
+ }
+ 
+ 

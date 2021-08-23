@@ -1,0 +1,30 @@
+--- a/kernel/linux-4.1/Kconfig.bcm
++++ b/kernel/linux-4.1/Kconfig.bcm
+@@ -1851,6 +1851,16 @@ config BCM_OVS_MCAST
+ 	depends on BCM_OVS
+ 	default n
+ 
++config OVS_SKIP_ACCEL_ACTION
++        bool "OVS skip_accel action Support"
++        depends on BCM_OVS
++        default n
++
++config OVS_SKIP_ACCEL_ACTION_HOOK
++        bool "OVS skip_accel action - use acceleration disable hook"
++        depends on OVS_SKIP_ACCEL_ACTION
++        default n
++
+ menu "Autodetected Drivers"
+ source "../../bcmdrivers/Kconfig.autogen"
+ endmenu
+--- a/kernel/linux-4.1/net/netfilter/nf_conntrack_acct.c
++++ b/kernel/linux-4.1/net/netfilter/nf_conntrack_acct.c
+@@ -20,6 +20,8 @@
+ 
+ #if defined(CONFIG_BCM_KF_DPI) && defined(CONFIG_BCM_DPI_MODULE)
+ static bool nf_ct_acct __read_mostly = 1;
++#elif defined(CONFIG_OVS_SKIP_ACCEL_ACTION)
++static bool nf_ct_acct __read_mostly = 1;
+ #else
+ static bool nf_ct_acct __read_mostly;
+ #endif

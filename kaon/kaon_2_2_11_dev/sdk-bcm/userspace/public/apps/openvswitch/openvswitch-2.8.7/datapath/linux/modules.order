@@ -1,0 +1,6 @@
+kernel//auto/hudson_new_slave_root/workspace/CommEngine_502L07_Stage_Dorel/opt1/linux/userspace/public/apps/openvswitch/openvswitch-2.8.7/datapath/linux/openvswitch.ko
+kernel//auto/hudson_new_slave_root/workspace/CommEngine_502L07_Stage_Dorel/opt1/linux/userspace/public/apps/openvswitch/openvswitch-2.8.7/datapath/linux/vport-geneve.ko
+kernel//auto/hudson_new_slave_root/workspace/CommEngine_502L07_Stage_Dorel/opt1/linux/userspace/public/apps/openvswitch/openvswitch-2.8.7/datapath/linux/vport-gre.ko
+kernel//auto/hudson_new_slave_root/workspace/CommEngine_502L07_Stage_Dorel/opt1/linux/userspace/public/apps/openvswitch/openvswitch-2.8.7/datapath/linux/vport-lisp.ko
+kernel//auto/hudson_new_slave_root/workspace/CommEngine_502L07_Stage_Dorel/opt1/linux/userspace/public/apps/openvswitch/openvswitch-2.8.7/datapath/linux/vport-stt.ko
+kernel//auto/hudson_new_slave_root/workspace/CommEngine_502L07_Stage_Dorel/opt1/linux/userspace/public/apps/openvswitch/openvswitch-2.8.7/datapath/linux/vport-vxlan.ko

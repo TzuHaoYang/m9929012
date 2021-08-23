@@ -1,0 +1,65 @@
+--- a/networking/udhcp/dhcpc.c
++++ b/networking/udhcp/dhcpc.c
+@@ -733,7 +733,7 @@ static NOINLINE int send_discover(uint32
+ 	 */
+ 	add_client_options(&packet);
+ 
+-	bb_error_msg("sending %s", "discover");
++	bb_error_msg("sending %s on %s", "discover", client_config.interface);
+ 	return raw_bcast_from_client_config_ifindex(&packet, INADDR_ANY);
+ }
+ 
+@@ -818,7 +818,7 @@ static NOINLINE int send_renew(uint32_t
+ 	add_client_options(&packet);
+ 
+ 	temp_addr.s_addr = server;
+-	bb_error_msg("sending renew to %s", inet_ntoa(temp_addr));
++	bb_error_msg("sending %s to %s", "renew", inet_ntoa(temp_addr));
+ 	return bcast_or_ucast(&packet, ciaddr, server);
+ }
+ 
+@@ -828,6 +828,7 @@ static NOINLINE int send_renew(uint32_t
+ static NOINLINE int send_decline(/*uint32_t xid,*/ uint32_t server, uint32_t requested)
+ {
+ 	struct dhcp_packet packet;
++	struct in_addr temp_addr;
+ 
+ 	/* Fill in: op, htype, hlen, cookie, chaddr, random xid fields,
+ 	 * client-id option (unless -C), message type option:
+@@ -847,7 +848,8 @@ static NOINLINE int send_decline(/*uint3
+ 
+ 	udhcp_add_simple_option(&packet, DHCP_SERVER_ID, server);
+ 
+-	bb_error_msg("sending %s", "decline");
++	temp_addr.s_addr = server;
++	bb_error_msg("sending %s to %s", "decline", inet_ntoa(temp_addr));
+ 	return raw_bcast_from_client_config_ifindex(&packet, INADDR_ANY);
+ }
+ #endif
+@@ -858,6 +860,7 @@ ALWAYS_INLINE /* one caller, help compil
+ int send_release(uint32_t server, uint32_t ciaddr)
+ {
+ 	struct dhcp_packet packet;
++	struct in_addr temp_addr;
+ 
+ 	/* Fill in: op, htype, hlen, cookie, chaddr, random xid fields,
+ 	 * client-id option (unless -C), message type option:
+@@ -869,7 +872,8 @@ int send_release(uint32_t server, uint32
+ 
+ 	udhcp_add_simple_option(&packet, DHCP_SERVER_ID, server);
+ 
+-	bb_error_msg("sending %s", "release");
++	temp_addr.s_addr = server;
++	bb_error_msg("sending %s to %s", "release", inet_ntoa(temp_addr));
+ 	/* Note: normally we unicast here since "server" is not zero.
+ 	 * However, there _are_ people who run "address-less" DHCP servers,
+ 	 * and reportedly ISC dhcp client and Windows allow that.
+@@ -1713,7 +1717,7 @@ int udhcpc_main(int argc UNUSED_PARAM, c
+ 				already_waited_sec = 0;
+ 				if (opt & OPT_Q) {
+ 					retval = 0;
+-					bb_error_msg("DHCP offer received, exit");
++					bb_error_msg("DHCP offer received on %s, exit", client_config.interface);
+ 					goto ret;
+ 				}
+ 			}

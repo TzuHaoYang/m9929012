@@ -1,0 +1,224 @@
+--- a/bcmdrivers/opensource/char/board/bcm963xx/impl1/board.c
++++ b/bcmdrivers/opensource/char/board/bcm963xx/impl1/board.c
+@@ -524,6 +524,8 @@ EXPORT_SYMBOL(BpGetSpiMisoGpio);
+ EXPORT_SYMBOL(BpGetSpiMosiGpio);
+ #endif 
+ 
++EXPORT_SYMBOL(BpGetGpioLedDriverEnable);
++EXPORT_SYMBOL(BpGetGpioLedFet);
+ EXPORT_SYMBOL(BpGetUsbDis);
+ EXPORT_SYMBOL(BpGetPciDis);
+ EXPORT_SYMBOL(BpGetSataDis);
+--- a/bcmdrivers/opensource/char/i2c/busses/impl1/i2c_bcmgpio.c
++++ b/bcmdrivers/opensource/char/i2c/busses/impl1/i2c_bcmgpio.c
+@@ -44,6 +44,7 @@
+ #include <linux/i2c.h>
+ #include <linux/i2c-gpio.h>
+ #include <linux/gpio.h>
++#include <linux/platform_data/leds-lp55xx.h>
+ 
+ #include <bcm_gpio.h>
+ #include <board.h>
+@@ -103,6 +104,49 @@ struct platform_device bcm_device_i2c_gp
+     },
+ };
+ 
++
++static u8 breathe_pattern[] = {
++    0x08, 0x7F, 0x08, 0x7F, 0x08, 0xFF, 0x08, 0xFF,
++};
++
++static struct lp55xx_predef_pattern board_led_patterns[] = {
++    {
++        .r = breathe_pattern,
++        .size_r = ARRAY_SIZE(breathe_pattern),
++    }
++};
++
++static struct lp55xx_led_config cyrus_led_configs[] = {
++    {
++        .name = "white",
++        .default_pattern = 1,
++        .chan_nr = 3,
++        .led_current = 200,
++        .max_current = 200,
++    },
++};
++
++static struct lp55xx_platform_data lp55xx_platform_data_cyrus =
++{
++    .led_config = cyrus_led_configs,
++    .num_channels = ARRAY_SIZE(cyrus_led_configs),
++    .label = "cyrus-leds",
++    .clock_mode = 0,
++    .enable_gpio = 11,
++    .patterns = board_led_patterns,
++    .num_patterns = ARRAY_SIZE(board_led_patterns),
++    .pwr_sel = LP8501_ALL_VDD,
++};
++
++static struct i2c_board_info __initdata cyrus_i2c_board_info[] = {
++    {
++        .type = "lp5562",
++        .addr = 0x30,
++        .platform_data = (void *)&lp55xx_platform_data_cyrus,
++    },
++};
++
++
+ static struct platform_device *bcm_i2c_devices[] __initdata = {
+     &bcm_device_i2c_gpio,
+ };
+@@ -111,8 +155,25 @@ static struct platform_device *bcm_i2c_d
+ static int __init i2c_bcm_gpio_init(void)
+ {
+     unsigned short bpGpio_scl, bpGpio_sda;
++    unsigned short bpGpio_led_driver_enable;
++    unsigned short bpGpio_led_fet;
+     int ret;
+ 
++    BpGetGpioLedFet(&bpGpio_led_fet);
++    BpGetGpioLedDriverEnable(&bpGpio_led_driver_enable);
++
++    if(bpGpio_led_driver_enable != BP_NOT_DEFINED)
++    {
++        bcm_gpio_direction_output(&bcm_gpio_chip , bpGpio_led_driver_enable, 1);
++        bcm_gpio_set_value(&bcm_gpio_chip, bpGpio_led_driver_enable, 1);
++    }
++
++    if(bpGpio_led_fet != BP_NOT_DEFINED)
++    {
++        bcm_gpio_direction_output(&bcm_gpio_chip, bpGpio_led_fet, 0);
++        bcm_gpio_set_value(&bcm_gpio_chip, bpGpio_led_fet, 0);
++    }
++
+     BpGetBitbangSclGpio(&bpGpio_scl);
+     BpGetBitbangSdaGpio(&bpGpio_sda);
+ 
+@@ -134,6 +195,10 @@ static int __init i2c_bcm_gpio_init(void
+         ret = platform_add_devices(bcm_i2c_devices, ARRAY_SIZE(bcm_i2c_devices));
+         if (ret)
+             printk("%s: platform_add_device failed ret=%d\n", __FUNCTION__, ret);
++
++        i2c_register_board_info(0, cyrus_i2c_board_info,
++                                ARRAY_SIZE(cyrus_i2c_board_info));
++
+     }
+     else
+     {
+--- a/bcmdrivers/opensource/char/plat-bcm/impl1/bcm_arm_setup.c
++++ b/bcmdrivers/opensource/char/plat-bcm/impl1/bcm_arm_setup.c
+@@ -47,6 +47,7 @@ Boston, MA 02111-1307, USA.
+ #include <linux/init.h>
+ #include "board.h"
+ #include <asm/mach/map.h>
++#include <bcm_gpio.h>
+ #endif
+ #if defined(CONFIG_BCM96846) || defined(CONFIG_BCM963178) || defined(CONFIG_BCM947622) || defined(CONFIG_BCM96878)
+ #include <bcm_ubus4.h>
+@@ -173,6 +174,24 @@ EXPORT_SYMBOL(bcm_reserve_memory);
+ #if defined(CONFIG_BCM947189) || defined(CONFIG_BCM96846) ||defined(CONFIG_BCM947622) || defined(CONFIG_BCM963178) || defined(CONFIG_BCM96878)
+ static void bcm_sys_restart(enum reboot_mode reboot_mode, const char *cmd)
+ {
++	unsigned short bpGpio_led_driver_enable;
++	unsigned short bpGpio_led_fet;
++
++	BpGetGpioLedFet(&bpGpio_led_fet);
++	BpGetGpioLedDriverEnable(&bpGpio_led_driver_enable);
++
++	if(bpGpio_led_driver_enable != BP_NOT_DEFINED)
++	{
++		kerSysSetGpioDir(bpGpio_led_driver_enable);
++		kerSysSetGpioState(bpGpio_led_driver_enable, 0);
++	}
++
++	if(bpGpio_led_fet != BP_NOT_DEFINED)
++	{
++		kerSysSetGpioDir(bpGpio_led_fet);
++		kerSysSetGpioState(bpGpio_led_fet, 1);
++	}
++
+ 	if(kerSysIsIkosBootSet() == 0)
+ 		kerSysSoftReset();
+ }
+--- a/kernel/linux-4.1/drivers/leds/leds-lp5562.c
++++ b/kernel/linux-4.1/drivers/leds/leds-lp5562.c
+@@ -523,9 +523,6 @@ static int lp5562_probe(struct i2c_clien
+ 			ret = lp55xx_of_populate_pdata(&client->dev, np);
+ 			if (ret < 0)
+ 				return ret;
+-		} else {
+-			dev_err(&client->dev, "no platform data\n");
+-			return -EINVAL;
+ 		}
+ 	}
+ 	pdata = dev_get_platdata(&client->dev);
+--- a/shared/opensource/boardparms/bcm963xx/bp_funcs.c
++++ b/shared/opensource/boardparms/bcm963xx/bp_funcs.c
+@@ -7123,6 +7123,44 @@ int BpGetSpiMosiGpio( unsigned short *pu
+ }
+ #endif 
+ 
++/**************************************************************************
++* Name       : BpGetGpioLedDriverEnable
++*
++* Description: This function returns the LED Driver enable gpio number.
++*
++* Parameters : [OUT] pusValue - Address of short word that the
++*                  gpio number is returned in.
++*
++* Returns    : BP_SUCCESS - Success, value is returned.
++*              BP_BOARD_ID_NOT_SET - Error, BpSetBoardId has not been called.
++*              BP_VALUE_NOT_DEFINED - At least one return value is not defined
++*                  for the board.
++***************************************************************************/
++
++int BpGetGpioLedDriverEnable ( unsigned short *pusValue)
++{
++    return (BpGetGpio(bp_usGpioLedDriverEnable, pusValue));
++}
++
++/**************************************************************************
++* Name       : BpGetGpioLedFet
++*
++* Description: This function returns the LED Driver enable gpio number.
++*
++* Parameters : [OUT] pusValue - Address of short word that the
++*                  gpio number is returned in.
++*
++* Returns    : BP_SUCCESS - Success, value is returned.
++*              BP_BOARD_ID_NOT_SET - Error, BpSetBoardId has not been called.
++*              BP_VALUE_NOT_DEFINED - At least one return value is not defined
++*                  for the board.
++***************************************************************************/
++
++int BpGetGpioLedFet( unsigned short *pusValue)
++{
++    return (BpGetGpio(bp_usGpioLedFet, pusValue));
++}
++
+ #ifdef CONFIG_BP_PHYS_INTF
+ 
+ //#define DEBUG_PHYS_INTF
+--- a/shared/opensource/include/bcm963xx/boardparms.h
++++ b/shared/opensource/include/bcm963xx/boardparms.h
+@@ -1825,6 +1825,8 @@ int BpGetSpiCsGpio( unsigned short *pusV
+ int BpGetSpiMisoGpio( unsigned short *pusValue );
+ int BpGetSpiMosiGpio( unsigned short *pusValue );
+ #endif 
++int BpGetGpioLedDriverEnable ( unsigned short *pusValue);
++int BpGetGpioLedFet( unsigned short *pusValue);
+ 
+ int BpGetWL0ActLedGpio( unsigned short *pusValue );
+ int BpGetWL1ActLedGpio( unsigned short *pusValue );
+--- a/shared/opensource/include/bcm963xx/bp_defs.h
++++ b/shared/opensource/include/bcm963xx/bp_defs.h
+@@ -408,6 +408,8 @@ enum bp_id {
+   bp_usGpioSpiMiso,
+   bp_usGpioSpiMosi,
+ #endif
++  bp_usGpioLedDriverEnable,
++  bp_usGpioLedFet,
+   bp_usGpioPwrSync,
+   bp_usUsbDis,
+   bp_usPciDis,

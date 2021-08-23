@@ -1,0 +1,14 @@
+--- a/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_util.c
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_util.c
+@@ -3600,8 +3600,9 @@ static enum CFE_FS_IMAGE_TYPE cfe_fs_get
+     };
+ 
+     struct fs_dentry* de = (struct fs_dentry*)buf;
+-    unsigned int blk = part_blk_start; 
+-    for( ; blk < blk + bcnt; blk++ ) {
++    unsigned int blk;
++
++    for(blk = part_blk_start ; blk < part_blk_start + bcnt; blk++ ) {
+         if( flash_read_buf(blk, 0, (void*)de, sizeof(struct fs_dentry)) > 0 ) {
+             if( cfe_fs_is_jffs2(je16_to_cpu(((struct jffs2_raw_dirent*)de)->magic))) {
+                 *blk_de = blk; 

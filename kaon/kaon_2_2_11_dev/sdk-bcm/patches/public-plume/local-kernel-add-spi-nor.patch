@@ -1,0 +1,96 @@
+--- a/kernel/dts/47622/947622.dts
++++ b/kernel/dts/47622/947622.dts
+@@ -20,6 +20,9 @@
+ #define SDIO_EMMC_SPI			86 
+ #define SPU_GMAC_SPI 			91 
+ #define ARM_UART0_SPI			32
++#if defined (CONFIG_SPI_BCM63XX_HSSPI)
++#define HS_SPIM_SPI 			36
++#endif
+ 
+ /dts-v1/;
+ /* For secondary boot area */
+@@ -132,6 +135,19 @@
+ 	};
+ #endif
+ 
++#if defined (CONFIG_SPI_BCM63XX_HSSPI)
++	aliases {
++		spi1 = &hsspi; /* 0 = legacy, 1 = high speed */
++	};
++
++	/* this is actually the PLL but we have no clock framework */
++	hsspi_pll: hsspi-pll {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <200000000>;
++	};
++#endif
++
+ #if defined (CONFIG_OPTEE)
+ 	psci {
+ 		compatible	= "arm,psci-0.2";
+@@ -211,6 +227,44 @@
+ 		#size-cells = <1>;
+ 		ranges = <0 0xff800000 0x7fffff>;
+ 
++#if defined (CONFIG_SPI_BCM63XX_HSSPI)
++		hsspi: spi@0xff801000 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			compatible = "brcm,bcm6328-hsspi";
++			reg = <0x1000 0x600>;
++			clocks = <&hsspi_pll>, <&hsspi_pll>;
++			clock-names = "hsspi", "pll";
++			spi-max-frequency = <67000000>;
++			num-cs = <8>;
++			cs-gpios = <0>, <0>;
++			interrupts = <GIC_SPI HS_SPIM_SPI IRQ_TYPE_LEVEL_HIGH>;
++			status = "okay";
++#if defined (CONFIG_MTD_M25P80)
++			flash: m25p80@0 {
++				status = "okay";
++				compatible = "jedec,spi-nor";
++				reg = <0>; /* chip select 0 */
++				spi-max-frequency = <50000000>;
++				#address-cells = <1>;
++				#size-cells = <1>;
++				partition@0 {
++					label = "0:cert";
++					reg = <0x0 0x0020000>;
++				};
++				partition@1 {
++					label = "0:prov";
++					reg = <0x0020000 0x0020000>;
++				};
++				partition@2 {
++					label = "0:misc";
++					reg = <0x0040000 0x03c0000>;
++				};
++			};
++#endif
++		};
++#endif
++
+ 		nand@ff801800 {
+ 			#address-cells = <1>;
+ 			#size-cells = <0>;
+--- a/kernel/dts/gen_dt_bindings
++++ b/kernel/dts/gen_dt_bindings
+@@ -59,6 +59,16 @@ then
+ 	echo "#define CONFIG_HWMON_FAN_RPM ${CONFIG_HWMON_FAN_RPM}" >> ${2}
+ fi
+ 
++if [ "${CONFIG_SPI_BCM63XX_HSSPI}" == "m" -o "${CONFIG_SPI_BCM63XX_HSSPI}" == "y" ]
++then
++	echo "#define CONFIG_SPI_BCM63XX_HSSPI ${CONFIG_SPI_BCM63XX_HSSPI}" >> ${2}
++fi
++
++if [ "${CONFIG_MTD_M25P80}" == "m" -o "${CONFIG_MTD_M25P80}" == "y" ]
++then
++	echo "#define CONFIG_MTD_M25P80 ${CONFIG_MTD_M25P80}" >> ${2}
++fi
++
+ # Support string defines like:
+ # #define SOMETHING "something"
+ # The input here will be ' #define "SOMETHING" "something" ' which means

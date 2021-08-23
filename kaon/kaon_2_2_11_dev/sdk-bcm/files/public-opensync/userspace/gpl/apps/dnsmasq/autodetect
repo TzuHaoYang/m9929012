@@ -1,0 +1,2 @@
+condition: ifeq ($(BUILD_OPENSYNC),y)
+dependson: private/apps/hndrouter private/apps/wlan

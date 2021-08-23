@@ -1,0 +1,238 @@
+OPENSYNC_DIR := $(INSTALL_PREFIX)
+TOOLS_DIR := $(OPENSYNC_DIR)/tools
+OPENSYNC_BIN := $(OPENSYNC_DIR)/bin
+LM_DIR := /var/log/lm
+
+menu "Capabilities"
+    config TARGET_CAP_GATEWAY
+        bool "Gateway"
+        default y
+        help
+            This device can act as a gateway (residential or otherwise).
+
+    config TARGET_CAP_EXTENDER
+        bool "Extender"
+        default n
+        select TARGET_CAP_GATEWAY
+        help
+            This device can act as an extender.
+
+endmenu
+
+menu "Target paths"
+    config TARGET_PATH_BIN
+        string "Path to binaries/managers"
+        default "$(OPENSYNC_BIN)"
+
+    config TARGET_PATH_TOOLS
+        string "Path to tools folder"
+        default "$(OPENSYNC_DIR)/tools"
+
+    config TARGET_PATH_SCRIPTS
+        string "Path to scripts folder"
+        default "$(OPENSYNC_BIN)"
+
+    config TARGET_PATH_PERSISTENT
+        string "Path to persistent storage"
+        default "/etc/plume"
+
+    config TARGET_PATH_LOG_STATE
+        string "Path to the log state config file"
+        default "/etc/log-state.conf"
+        help
+            This is used for dynamically adjusting log and severity levels
+            On systems with buggy inotify and overlayfs (QSDK 2.0),
+            use the overlay path instead (/overlay/etc/log-state.conf)
+            To disable dynamic log set to an empty string
+
+    config TARGET_PATH_LOG_LM
+        string "Path to LM log storage"
+        default "$(LM_DIR)"
+
+    config TARGET_PATH_LOG_TRIGGER
+        string "Path to the log trigger folder"
+        default "$(LM_DIR)/tmp"
+        help
+            To disable log trigger set to an empty string
+
+    config TARGET_PATH_DISABLE_FATAL_STATE
+        string "Path to the fatal state inhibit file"
+        default "/opt/tb/cm-disable-fatal"
+        help
+            This file inhibits the manager restart action -- use for testing only.
+endmenu
+
+menuconfig TARGET_ETH_LIST
+    bool "Ethernet interface list"
+    default y
+    help
+        Use a hardcoded ethernet interface list.
+
+        This option implements the target_ethclient_iflist_get() function.
+
+if TARGET_ETH_LIST
+    config TARGET_ETH0_LIST
+        bool "Ethernet[0]"
+        default y
+
+    config TARGET_ETH0_NAME
+        string "Ifname[0]"
+        depends on TARGET_ETH0_LIST
+        default "eth0"
+
+    config TARGET_ETH1_LIST
+        bool "Ethernet[1]"
+
+    config TARGET_ETH1_NAME
+        string "Ifname[1]"
+        depends on TARGET_ETH1_LIST
+
+    config TARGET_ETH2_LIST
+        bool "Ethernet[2]"
+
+    config TARGET_ETH2_NAME
+        string "Ifname[2]"
+        depends on TARGET_ETH2_LIST
+
+    config TARGET_ETH3_LIST
+        bool "Ethernet[3]"
+
+    config TARGET_ETH3_NAME
+        string "Ifname[3]"
+        depends on TARGET_ETH3_LIST
+
+    config TARGET_ETH4_LIST
+        bool "Ethernet[4]"
+
+    config TARGET_ETH4_NAME
+        string "Ifname[4]"
+        depends on TARGET_ETH4_LIST
+
+    config TARGET_ETH5_LIST
+        bool "Ethernet[5]"
+
+    config TARGET_ETH5_NAME
+        string "Ifname[5]"
+        depends on TARGET_ETH5_LIST
+endif
+
+config TARGET_LAN_BRIDGE_NAME
+    string "LAN bridge name"
+    default "br0"
+    help
+        LAN bridge name that will be used
+
+config TARGET_USE_WAN_BRIDGE
+    bool "Use WAN bridge"
+    default y
+    help
+        Use additional bridge for WAN link
+
+if TARGET_USE_WAN_BRIDGE
+    config TARGET_WAN_BRIDGE_NAME
+        string "WAN bridge name"
+        default "br1"
+        help
+            WAN bridge name that will be used
+endif
+
+menuconfig TARGET_LED_SUPPORT
+    bool "Enable LED support"
+    default n
+    help
+        Enable LED support (requires LEDM). This option implements the
+        target_led_device_dir() and target_led_names() functions.
+
+    if TARGET_LED_SUPPORT
+        config TARGET_LED_PATH
+            string "LED path pattern"
+            default "/sys/class/leds/%s"
+            help
+                The pattern used to access a LED device.
+                The %s will be replaced with the LED name (see below).
+
+        config TARGET_LED0
+            bool "LED[0]"
+
+        config TARGET_LED0_NAME
+            string "Name[0]"
+            depends on TARGET_LED0
+
+        config TARGET_LED1
+            bool "LED[1]"
+
+        config TARGET_LED1_NAME
+            string "Name[1]"
+            depends on TARGET_LED1
+
+        config TARGET_LED2
+            bool "LED[2]"
+
+        config TARGET_LED2_NAME
+            string "Name[2]"
+            depends on TARGET_LED2
+
+        config TARGET_LED3
+            bool "LED[3]"
+
+        config TARGET_LED3_NAME
+            string "Name[3]"
+            depends on TARGET_LED3
+    endif
+
+menu "Misc..."
+config TARGET_RESTART_SCRIPT
+    bool "Use a script to restart managers"
+    default y
+    help
+        Use a script to execute a manager restart
+
+config TARGET_RESTART_SCRIPT_CMD
+    string "Command to execute"
+    default "$(OPENSYNC_BIN)/restart.sh"
+    depends on TARGET_RESTART_SCRIPT
+
+config TARGET_LINUX_LOGPULL
+    bool "Device supports standard logpull"
+    default y
+    help
+        Device has the lm_logs_collector.sh script
+        which can be used for generating log pulls.
+
+        This option implements the target_log_pull() function.
+
+
+config TARGET_WATCHDOG
+    bool "Device has a watchdog"
+    help
+        If the device has a watchdog, select this option
+        and implement the target_device_wdt_ping() function.
+
+        This function will be periodically called to pet the watchdog.
+
+config TARGET_LINUX_EXECUTE
+    bool "Use generic Linux execute"
+    default y
+    help
+        This implements the target_device_execute() function using the standard
+        Linux system() call.
+
+        You may want to select 'Y' here for most Linux-based SDKs.
+
+config TARGET_CM_LINUX_SUPPORT_PACKAGE
+    bool "CM Linux support package"
+    default y
+
+    help
+        Various collection of functions that are mostly common for
+        all Linux platforms.
+
+        Required by CM2.
+
+config TARGET_IMC
+    bool "Inter manager communication"
+    default n
+    help
+        Select this option if the platform enables zeromq
+
+endmenu

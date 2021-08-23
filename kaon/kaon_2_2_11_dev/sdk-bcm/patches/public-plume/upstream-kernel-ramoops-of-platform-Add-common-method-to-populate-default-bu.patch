@@ -1,0 +1,80 @@
+From 44a7185c2ae6383c88ff5b1ef2e2969f35d7b8b7 Mon Sep 17 00:00:00 2001
+From: Kefeng Wang <wangkefeng.wang@huawei.com>
+Date: Wed, 1 Jun 2016 14:52:54 +0800
+Subject: [PATCH] of/platform: Add common method to populate default bus
+
+The arch code calls of_platform_populate() with default match table
+when it wants to populate default bus.
+
+This patch introduce a new of_platform_default_populate_init() and make it
+arch_initcall_sync(it should be later than some iommu configration, eg,
+of_iommu_init() and swiotlb_late_init in arm64), then we can finish above
+job in common method.
+
+In order to avoid the default bus being populated twice, simply checking
+the flag of bus node whether has be set OF_POPULATED_BUS or not.
+
+After that, we can safely remove the caller in arch code.
+
+Btw, add debug print in of_platform_populate(), and use __func__ to
+print function's name of of_platform_bus_create().
+
+Cc: Rob Herring <robh+dt@kernel.org>
+Cc: Frank Rowand <frowand.list@gmail.com>
+Cc: Grant Likely <grant.likely@linaro.org>
+Signed-off-by: Kefeng Wang <wangkefeng.wang@huawei.com>
+Signed-off-by: Rob Herring <robh@kernel.org>
+---
+ drivers/of/platform.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+--- a/kernel/linux-4.1/drivers/of/platform.c
++++ b/kernel/linux-4.1/drivers/of/platform.c
+@@ -343,6 +343,12 @@ static int of_platform_bus_create(struct
+ 		return 0;
+ 	}
+ 
++	if (of_node_check_flag(bus, OF_POPULATED_BUS)) {
++		pr_debug("%s() - skipping %s, already populated\n",
++			__func__, bus->full_name);
++		return 0;
++	}
++
+ 	auxdata = of_dev_lookup(lookup, bus);
+ 	if (auxdata) {
+ 		bus_id = auxdata->name;
+@@ -394,7 +400,7 @@ int of_platform_bus_probe(struct device_
+ 	if (!root)
+ 		return -EINVAL;
+ 
+-	pr_debug("of_platform_bus_probe()\n");
++	pr_debug("%s()\n", __func__);
+ 	pr_debug(" starting at: %s\n", root->full_name);
+ 
+ 	/* Do a self check of bus type, if there's a match, create children */
+@@ -444,6 +450,9 @@ int of_platform_populate(struct device_n
+ 	if (!root)
+ 		return -EINVAL;
+ 
++	pr_debug("%s()\n", __func__);
++	pr_debug(" starting at: %s\n", root->full_name);
++
+ 	for_each_child_of_node(root, child) {
+ 		rc = of_platform_bus_create(child, matches, lookup, parent, true);
+ 		if (rc)
+@@ -465,6 +474,15 @@ int of_platform_default_populate(struct
+ }
+ EXPORT_SYMBOL_GPL(of_platform_default_populate);
+ 
++static int __init of_platform_default_populate_init(void)
++{
++	if (of_have_populated_dt())
++		of_platform_default_populate(NULL, NULL, NULL);
++
++	return 0;
++}
++arch_initcall_sync(of_platform_default_populate_init);
++
+ static int of_platform_device_destroy(struct device *dev, void *data)
+ {
+ 	/* Do not touch devices not populated from the device tree */

@@ -1,0 +1,14 @@
+--- a/userspace/public/apps/openvswitch/Makefile
++++ b/userspace/public/apps/openvswitch/Makefile
+@@ -61,10 +61,9 @@ check_untar_patch_configure: sanity_chec
+ 	@if [ ! -e $(APP)/.untar_complete ]; then \
+     	echo "Untarring original $(APP) source"; \
+ 	    (tar xkf $(APP).tar.gz 2> /dev/null || true); \
+-    		echo "Applying patches to $(APP)" ; \
+-		patch -p1 -b -N -s -d$(APP) < $(APP).patch ; \
+ 		touch $(APP)/.untar_complete; \
+         fi; \
++	test -e $(APP)/.quilt_complete || ( cd "$(APP)" && ln -sf ../patches patches && quilt push -a && touch .quilt_complete )
+ 
+ conditional_build: check_untar_patch_configure
+ 	CURRENT_ARCH=$(KERNEL_ARCH) TOOLCHAIN_TOP= $(MAKE) inner_kernelmodulebuild 

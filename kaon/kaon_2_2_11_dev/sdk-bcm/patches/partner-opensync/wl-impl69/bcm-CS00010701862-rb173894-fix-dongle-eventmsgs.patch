@@ -1,0 +1,13 @@
+Index: a/bcmdrivers/broadcom/net/wl/impl69/sys/src/dhd/sys/dhd_linux.c
+===================================================================
+--- a/bcmdrivers/broadcom/net/wl/impl69/sys/src/dhd/sys/dhd_linux.c	(revision 794018)
++++ a/bcmdrivers/broadcom/net/wl/impl69/sys/src/dhd/sys/dhd_linux.c	(working copy)
+@@ -12054,6 +12054,8 @@
+ 		setbit(eventmask_msg->mask, WLC_E_BAND_CHANGE);
+ #endif /* WL_CFG80211 */
+ 
++		setbit(eventmask_msg->mask, WLC_E_CAC_STATE_CHANGE);
++
+ 		/* Write updated Event mask */
+ 		eventmask_msg->ver = EVENTMSGS_VER;
+ 		eventmask_msg->command = EVENTMSGS_SET_MASK;

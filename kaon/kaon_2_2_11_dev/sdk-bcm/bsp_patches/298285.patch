@@ -1,0 +1,57 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/broadcom/char/wlcsm_ext/impl1/src/wlcsm_nvram.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/broadcom/char/wlcsm_ext/impl1/src/wlcsm_nvram.c
+
+@@ -274,6 +274,20 @@
+     return ret;
+ }
+ 
++/* function to avoid copy-pasting its function body */
++static int wlcsm_double_null_terminate(char *buf, int count, int len)
++{
++    /* external caller expects buf to be double-NULL character terminated */
++    if (len + 1 < count) {
++        buf[len++] = '\0';
++    } else {
++        buf[count - 2] = '\0';
++        buf[count - 1] = '\0';
++    }
++
++    return len;
++}
++
+ int wlcsm_nvram_getall(char *buf,int count)
+ {
+     struct rb_node *node;
+@@ -282,6 +296,7 @@
+     int len=0;
+ 
+     WLCSM_NVRAM_LOCK();
++
+     for(node=rb_first(&wlcsm_nvram_tree); node; node=rb_next(node)) {
+         data = rb_entry(node,t_WLCSM_NVRAM_TUPLE, node)->tuple;
+         name=VALUEPAIR_NAME(data);
+@@ -291,11 +306,12 @@
+             len+=sprintf(buf+len,"%s=%s",name,value)+1;
+         } else
+             break;
++    }
+ 
+-    }
++    len = wlcsm_double_null_terminate(buf, count, len);
++
+     WLCSM_NVRAM_UNLOCK();
+     return len;
+-
+ }
+ 
+ int wlcsm_nvram_getall_pos(char *buf,int count,int pos)
+@@ -324,6 +340,8 @@
+         if(tcount>count) break;
+     }
+ 
++    tcount = wlcsm_double_null_terminate(buf, count, tcount);
++
+     WLCSM_NVRAM_UNLOCK();
+     return tcount;
+ }

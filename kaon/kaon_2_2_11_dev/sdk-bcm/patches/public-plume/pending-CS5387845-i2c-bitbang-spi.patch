@@ -1,0 +1,62 @@
+This is based on:
+  CS5387845-enable-i2c-and-spi-function/i2c_bitbang.tgz
+
+I'm not sure if this is truly applicable to 47189
+refboard itself, or just Cyrus board.
+
+If this turns out to be Cyrus specific, then some
+of the configs will need to be moved to
+gendefconfig.d/60-plume.conf and made to rely on
+the build target build cyrus, and not the 47189.
+
+After updating to 5.2.7p1 the C code and makefile
+patch hunks were removed as they were no longer
+necessary. This seems to have came along with
+brcm_chip=63178. This patch is against 47189 so
+some hunks still need to be kept around.
+--- a/hostTools/scripts/gendefconfig.d/15general.conf
++++ b/hostTools/scripts/gendefconfig.d/15general.conf
+@@ -201,6 +201,18 @@ if ( $chip =~ /^(63178)$/ ) {
+     }
+ }
+ 
++if ( $chip =~ /^(47189)$/ ) {
++    $c->driver_setup( "I2C", "I2C_BUS" );
++    if ( $p->get("BRCM_DRIVER_I2C") ) {
++        $c->driver_setup( "I2C", "I2C_GPIO" );
++        $c->set( "CONFIG_GPIOLIB",     "y" );
++        $c->set( "CONFIG_I2C",         "y" );
++        $c->set( "CONFIG_I2C_ALGOBIT", "y" );
++        $c->set( "CONFIG_I2C_GPIO", "y" );
++        $c->set( "CONFIG_I2C_CHARDEV", "y" );
++    }
++}
++
+ if ( $chip =~ /^(6858|6856|6846|6878)$/ ) {
+     if ( $p->get( "BRCM_PON_WAN_TYPE_AUTO_DETECT" ) ) {
+         $c->set( "CONFIG_BCM_PON_WAN_TYPE_AUTO_DETECT", "y" );
+--- a/targets/config.in
++++ b/targets/config.in
+@@ -444,6 +444,10 @@ if [ "$BRCM_6838" = "y" -o "$BRCM_6848"
+    fi
+ fi
+ 
++if [ "$BRCM_47189" = "y" ]; then
++   tristate 'I2C' BRCM_DRIVER_I2C
++fi
++
+ if [ "$BRCM_6858" = "y" -o "$BRCM_6856" = "y" -o "$BRCM_6846" = "y" -o "$BRCM_6878" = "y" ]; then
+    define_string BRCM_PON_WAN_TYPE_AUTO_DETECT "y"
+ fi
+--- a/bcmdrivers/opensource/char/i2c/busses/impl1/Makefile
++++ b/bcmdrivers/opensource/char/i2c/busses/impl1/Makefile
+@@ -4,7 +4,9 @@
+ #
+ 
+ ifeq ($(findstring _$(strip $(BRCM_CHIP))_,_63178_),)
++ifneq ($(strip $(BRCM_CHIP)),47189)
+ obj-$(CONFIG_BCM_I2C_BUS) += i2c_bcm6xxx.o
++endif # 47189
+ endif
+ obj-$(CONFIG_BCM_I2C_GPIO) += i2c_bcmgpio.o
+ 

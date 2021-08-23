@@ -1,0 +1,232 @@
+From 35da60941e44dbf57868e67686dd24cc1a33125a Mon Sep 17 00:00:00 2001
+From: Greg Hackmann <ghackmann@google.com>
+Date: Thu, 7 Jan 2016 15:40:56 -0800
+Subject: [PATCH] pstore/ram: add Device Tree bindings
+
+ramoops is one of the remaining places where ARM vendors still rely on
+board-specific shims.  Device Tree lets us replace those shims with
+generic code.
+
+These bindings mirror the ramoops module parameters, with two small
+differences:
+
+(1) dump_oops becomes an optional "no-dump-oops" property, since ramoops
+    sets dump_oops=1 by default.
+
+(2) mem_type=1 becomes the more self-explanatory "unbuffered" property.
+
+Signed-off-by: Greg Hackmann <ghackmann@google.com>
+[fixed platform_get_drvdata() crash, thanks to Brian Norris]
+[switched from u64 to u32 to simplify code, various whitespace fixes]
+[use dev_of_node() to gain code-elimination for CONFIG_OF=n]
+Signed-off-by: Kees Cook <keescook@chromium.org>
+---
+ .../devicetree/bindings/misc/ramoops.txt      | 48 ++++++++++
+ Documentation/ramoops.txt                     |  6 +-
+ fs/pstore/ram.c                               | 95 ++++++++++++++++++-
+ 3 files changed, 145 insertions(+), 4 deletions(-)
+ create mode 100644 Documentation/devicetree/bindings/misc/ramoops.txt
+
+--- /dev/null
++++ b/kernel/linux-4.1/Documentation/devicetree/bindings/misc/ramoops.txt
+@@ -0,0 +1,48 @@
++Ramoops oops/panic logger
++=========================
++
++ramoops provides persistent RAM storage for oops and panics, so they can be
++recovered after a reboot. It is a backend to pstore, so this node is named
++"ramoops" after the backend, rather than "pstore" which is the subsystem.
++
++Parts of this storage may be set aside for other persistent log buffers, such
++as kernel log messages, or for optional ECC error-correction data.  The total
++size of these optional buffers must fit in the reserved region.
++
++Any remaining space will be used for a circular buffer of oops and panic
++records.  These records have a configurable size, with a size of 0 indicating
++that they should be disabled.
++
++At least one of "record-size", "console-size", "ftrace-size", or "pmsg-size"
++must be set non-zero, but are otherwise optional as listed below.
++
++
++Required properties:
++
++- compatible: must be "ramoops"
++
++- memory-region: phandle to a region of memory that is preserved between
++  reboots
++
++
++Optional properties:
++
++- ecc-size: enables ECC support and specifies ECC buffer size in bytes
++  (defaults to 0: no ECC)
++
++- record-size: maximum size in bytes of each dump done on oops/panic
++  (defaults to 0: disabled)
++
++- console-size: size in bytes of log buffer reserved for kernel messages
++  (defaults to 0: disabled)
++
++- ftrace-size: size in bytes of log buffer reserved for function tracing and
++  profiling (defaults to 0: disabled)
++
++- pmsg-size: size in bytes of log buffer reserved for userspace messages
++  (defaults to 0: disabled)
++
++- unbuffered: if present, use unbuffered mappings to map the reserved region
++  (defaults to buffered mappings)
++
++- no-dump-oops: if present, only dump panics (defaults to panics and oops)
+--- a/kernel/linux-4.1/Documentation/ramoops.txt
++++ b/kernel/linux-4.1/Documentation/ramoops.txt
+@@ -45,7 +45,7 @@ corrupt, but usually it is restorable.
+ 
+ 2. Setting the parameters
+ 
+-Setting the ramoops parameters can be done in 2 different manners:
++Setting the ramoops parameters can be done in 3 different manners:
+  1. Use the module parameters (which have the names of the variables described
+  as before).
+  For quick debugging, you can also reserve parts of memory during boot
+@@ -54,7 +54,9 @@ Setting the ramoops parameters can be do
+  kernel to use only the first 128 MB of memory, and place ECC-protected ramoops
+  region at 128 MB boundary:
+  "mem=128M ramoops.mem_address=0x8000000 ramoops.ecc=1"
+- 2. Use a platform device and set the platform data. The parameters can then
++ 2. Use Device Tree bindings, as described in
++ Documentation/device-tree/bindings/misc/ramoops.txt.
++ 3. Use a platform device and set the platform data. The parameters can then
+  be set through that platform data. An example of doing that is:
+ 
+ #include <linux/pstore_ram.h>
+--- a/kernel/linux-4.1/fs/pstore/ram.c
++++ b/kernel/linux-4.1/fs/pstore/ram.c
+@@ -34,6 +34,8 @@
+ #include <linux/slab.h>
+ #include <linux/compiler.h>
+ #include <linux/pstore_ram.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
+ 
+ #define RAMOOPS_KERNMSG_HDR "===="
+ #define MIN_MEM_SIZE 4096UL
+@@ -444,15 +446,98 @@ static int ramoops_init_prz(struct devic
+ 	return 0;
+ }
+ 
++static int ramoops_parse_dt_size(struct platform_device *pdev,
++				 const char *propname, u32 *value)
++{
++	u32 val32 = 0;
++	int ret;
++
++	ret = of_property_read_u32(pdev->dev.of_node, propname, &val32);
++	if (ret < 0 && ret != -EINVAL) {
++		dev_err(&pdev->dev, "failed to parse property %s: %d\n",
++			propname, ret);
++		return ret;
++	}
++
++	if (val32 > INT_MAX) {
++		dev_err(&pdev->dev, "%s %u > INT_MAX\n", propname, val32);
++		return -EOVERFLOW;
++	}
++
++	*value = val32;
++	return 0;
++}
++
++static int ramoops_parse_dt(struct platform_device *pdev,
++			    struct ramoops_platform_data *pdata)
++{
++	struct device_node *of_node = pdev->dev.of_node;
++	struct device_node *mem_region;
++	struct resource res;
++	u32 value;
++	int ret;
++
++	dev_dbg(&pdev->dev, "using Device Tree\n");
++
++	mem_region = of_parse_phandle(of_node, "memory-region", 0);
++	if (!mem_region) {
++		dev_err(&pdev->dev, "no memory-region phandle\n");
++		return -ENODEV;
++	}
++
++	ret = of_address_to_resource(mem_region, 0, &res);
++	of_node_put(mem_region);
++	if (ret) {
++		dev_err(&pdev->dev,
++			"failed to translate memory-region to resource: %d\n",
++			ret);
++		return ret;
++	}
++
++	pdata->mem_size = resource_size(&res);
++	pdata->mem_address = res.start;
++	pdata->mem_type = of_property_read_bool(of_node, "unbuffered");
++	pdata->dump_oops = !of_property_read_bool(of_node, "no-dump-oops");
++
++#define parse_size(name, field) {					\
++		ret = ramoops_parse_dt_size(pdev, name, &value);	\
++		if (ret < 0)						\
++			return ret;					\
++		field = value;						\
++	}
++
++	parse_size("record-size", pdata->record_size);
++	parse_size("console-size", pdata->console_size);
++	parse_size("ftrace-size", pdata->ftrace_size);
++	parse_size("pmsg-size", pdata->pmsg_size);
++	parse_size("ecc-size", pdata->ecc_info.ecc_size);
++
++#undef parse_size
++
++	return 0;
++}
++
+ static int ramoops_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+-	struct ramoops_platform_data *pdata = pdev->dev.platform_data;
++	struct ramoops_platform_data *pdata = dev->platform_data;
+ 	struct ramoops_context *cxt = &oops_cxt;
+ 	size_t dump_mem_sz;
+ 	phys_addr_t paddr;
+ 	int err = -EINVAL;
+ 
++	if (dev_of_node(dev) && !pdata) {
++		pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
++		if (!pdata) {
++			err = -ENOMEM;
++			goto fail_out;
++		}
++
++		err = ramoops_parse_dt(pdev, pdata);
++		if (err < 0)
++			goto fail_out;
++	}
++
+ 	/* Only a single ramoops area allowed at a time, so fail extra
+ 	 * probes.
+ 	 */
+@@ -585,11 +670,17 @@ static int __exit ramoops_remove(struct
+ 	return -EBUSY;
+ }
+ 
++static const struct of_device_id dt_match[] = {
++	{ .compatible = "ramoops" },
++	{}
++};
++
+ static struct platform_driver ramoops_driver = {
+ 	.probe		= ramoops_probe,
+ 	.remove		= __exit_p(ramoops_remove),
+ 	.driver		= {
+-		.name	= "ramoops",
++		.name		= "ramoops",
++		.of_match_table	= dt_match,
+ 	},
+ };
+ 

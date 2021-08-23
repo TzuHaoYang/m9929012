@@ -1,0 +1,27 @@
+--- a/kernel/linux-4.1/net/core/blog.c
++++ b/kernel/linux-4.1/net/core/blog.c
+@@ -180,6 +180,14 @@ const char *blog_drv_ioctl_name[] =
+     BLOG_ARY_INIT(BLOG_IOCTL_INVALID)
+ };
+ 
++static int blog_l2tp_rcv_nocheck(struct net_device *dev, uint16_t tunnel_id, uint16_t session_id)
++{
++#if 0//for Debug
++   if(net_ratelimit())
++       printk("#### %s:%d #### fix working ...\n",__FUNCTION__,__LINE__);
++#endif
++   return BLOG_L2TP_RCV_NO_TUNNEL;
++}
+ 
+ /* Accelerator functions binds to this pointer to set the accel mode */
+ blog_accel_mode_set_t blog_accel_mode_set_fn = NULL;
+@@ -3034,6 +3042,9 @@ void blog_bind_config( BlogScHook_t blog
+         hw_accelerator_client = client;
+     else
+         sw_accelerator_client = client;
++
++    if(blog_l2tp_rcv_check_fn == NULL)
++        blog_l2tp_rcv_check_fn = (blog_l2tp_rcv_check_t) blog_l2tp_rcv_nocheck;
+ }
+ 
+ 
