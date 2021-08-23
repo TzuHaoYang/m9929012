@@ -10,7 +10,7 @@ PW : osync123
 make:
 ```
 ./docker/dock-run 
-make PROFILE=OS_EXTENDER_BCM52 OPENSYNC_SRC=~/sourcecode/kaon/kaon_2_2_11_dev-master/opensync 
+make PROFILE=OS_EXTENDER_BCM52 OPENSYNC_SRC=<CODE PATH>/kaon_2_2_11_dev/opensync 
 ```
 
 f/w upgrade:
