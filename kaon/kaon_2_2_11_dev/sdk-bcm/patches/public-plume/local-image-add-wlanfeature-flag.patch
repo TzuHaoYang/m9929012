@@ -1,0 +1,76 @@
+AFAIU this is used to make images boot into mfg
+mode by default and then, when mfg is complete the
+flag is changed so all subsequent boots don't go
+back into mfg mode ever again.
+
+For some reason we wanted to do it like this. Not
+sure how this can be upstreamed to broadcom.
+--- a/build/Makefile
++++ b/build/Makefile
+@@ -1159,7 +1159,7 @@ ifneq ("$(wildcard $(CFE_FILE))","")
+ 	$(HOSTTOOLS_DIR)/cmplzma -k -2 -$(KERNEL_COMPRESSION) vmlinux vmlinux.bin vmlinux.lz; \
+ 	$(HOSTTOOLS_DIR)/bcmImageBuilder $(BRCM_ENDIAN_FLAGS) --output $(FS_KERNEL_IMAGE_NAME) --chip $(or $(TAG_OVERRIDE),$(BRCM_CHIP)) --board $(BRCM_BOARD_ID) --blocksize $(BRCM_FLASHBLK_SIZE) --image-version $(IMAGE_VERSION) --cfefile $(CFE_FILE) --rootfsfile rootfs.img --kernelfile vmlinux.lz --dtbfile $(DTB_FILE); \
+ 	$(HOSTTOOLS_DIR)/bcmImageBuilder $(BRCM_ENDIAN_FLAGS) --output $(CFE_FS_KERNEL_IMAGE_NAME) --chip $(or $(TAG_OVERRIDE),$(BRCM_CHIP)) --board $(BRCM_BOARD_ID) --blocksize $(BRCM_FLASHBLK_SIZE) --image-version $(IMAGE_VERSION) --cfefile $(CFE_FILE) --rootfsfile rootfs.img --kernelfile vmlinux.lz --dtbfile $(DTB_FILE) --include-cfe $(IMG_DDR_TYPE_OPT); \
+-	$(HOSTTOOLS_DIR)/createimg.pl --set  boardid=$(BRCM_BOARD_ID) voiceboardid=$(BRCM_VOICE_BOARD_ID) numbermac=$(BRCM_NUM_MAC_ADDRESSES) macaddr=$(BRCM_BASE_MAC_ADDRESS) tp=$(BRCM_MAIN_TP_NUM) psisize=$(BRCM_PSI_SIZE) logsize=$(BRCM_LOG_SECTION_SIZE) auxfsprcnt=$(BRCM_AUXFS_PERCENT) gponsn=$(BRCM_GPON_SERIAL_NUMBER) gponpw=$(BRCM_GPON_PASSWORD) --inputfile=$(CFE_FS_KERNEL_IMAGE_NAME) --outputfile=$(FLASH_IMAGE_NAME) --nvramfile $(HOSTTOOLS_DIR)/nvram.h --nvramdefsfile $(HOSTTOOLS_DIR)/nvram_defaults.h --config=$(HOSTTOOLS_DIR)/local_install/conf/$(TOOLCHAIN_PREFIX).conf; \
++	$(HOSTTOOLS_DIR)/createimg.pl --set  boardid=$(BRCM_BOARD_ID) voiceboardid=$(BRCM_VOICE_BOARD_ID) numbermac=$(BRCM_NUM_MAC_ADDRESSES) macaddr=$(BRCM_BASE_MAC_ADDRESS) tp=$(BRCM_MAIN_TP_NUM) psisize=$(BRCM_PSI_SIZE) logsize=$(BRCM_LOG_SECTION_SIZE) auxfsprcnt=$(BRCM_AUXFS_PERCENT) gponsn=$(BRCM_GPON_SERIAL_NUMBER) gponpw=$(BRCM_GPON_PASSWORD) wlanfeature=$(BRCM_WLAN_FEATURE) --inputfile=$(CFE_FS_KERNEL_IMAGE_NAME) --outputfile=$(FLASH_IMAGE_NAME) --nvramfile $(HOSTTOOLS_DIR)/nvram.h --nvramdefsfile $(HOSTTOOLS_DIR)/nvram_defaults.h --config=$(HOSTTOOLS_DIR)/local_install/conf/$(TOOLCHAIN_PREFIX).conf; \
+ 	$(HOSTTOOLS_DIR)/addvtoken --endian $(ARCH_ENDIAN) --chip $(or $(TAG_OVERRIDE),$(BRCM_CHIP)) --flashtype NOR $(IMG_DDR_TYPE_OPT) $(FLASH_IMAGE_NAME) $(FLASH_IMAGE_NAME).w
+ 
+ 
+@@ -1178,7 +1178,7 @@ endif
+ 	$(HOSTTOOLS_DIR)/bcmImageBuilder $(BRCM_ENDIAN_FLAGS) --output $(FS_KERNEL_IMAGE_NAME)_secureboot --chip $(or $(TAG_OVERRIDE),$(BRCM_CHIP)) --board $(BRCM_BOARD_ID) --blocksize $(SECURE_BOOT_NOR_BOOT_SIZE) --image-version $(IMAGE_VERSION) --cfefile $(PROFILE_DIR)/$(BRCM_CHIP)bi_nor.bin --rootfsfile rootfs.img --kernelfile vmlinux_secureboot.lz.sig --dtbfile $(DTB_FILE); \
+ 	$(HOSTTOOLS_DIR)/bcmImageBuilder $(BRCM_ENDIAN_FLAGS) --output $(CFE_FS_KERNEL_IMAGE_NAME)_secureboot --chip $(or $(TAG_OVERRIDE),$(BRCM_CHIP)) --board $(BRCM_BOARD_ID) --blocksize  $(SECURE_BOOT_NOR_BOOT_SIZE) --image-version $(IMAGE_VERSION) --cfefile $(PROFILE_DIR)/$(BRCM_CHIP)bi_nor.bin --rootfsfile rootfs.img --kernelfile vmlinux_secureboot.lz.sig --include-cfe --dtbfile $(DTB_FILE); \
+ 	rm -f $(PROFILE_DIR)$(BRCM_CHIP)bi_nor.bin vmlinux_secureboot.lz.sig; \
+-	$(HOSTTOOLS_DIR)/createimg.pl --set boardid=$(BRCM_BOARD_ID) voiceboardid=$(BRCM_VOICE_BOARD_ID) numbermac=$(BRCM_NUM_MAC_ADDRESSES) macaddr=$(BRCM_BASE_MAC_ADDRESS) tp=$(BRCM_MAIN_TP_NUM) psisize=$(BRCM_PSI_SIZE) logsize=$(BRCM_LOG_SECTION_SIZE) auxfsprcnt=$(BRCM_AUXFS_PERCENT) gponsn=$(BRCM_GPON_SERIAL_NUMBER) gponpw=$(BRCM_GPON_PASSWORD) --inputfile=$(CFE_FS_KERNEL_IMAGE_NAME)_secureboot --outputfile=$(FLASH_IMAGE_NAME)_secureboot --nvramfile $(HOSTTOOLS_DIR)/nvram.h --nvramdefsfile $(HOSTTOOLS_DIR)/nvram_defaults.h --config=$(HOSTTOOLS_DIR)/local_install/conf/$(TOOLCHAIN_PREFIX).conf; \
++	$(HOSTTOOLS_DIR)/createimg.pl --set boardid=$(BRCM_BOARD_ID) voiceboardid=$(BRCM_VOICE_BOARD_ID) numbermac=$(BRCM_NUM_MAC_ADDRESSES) macaddr=$(BRCM_BASE_MAC_ADDRESS) tp=$(BRCM_MAIN_TP_NUM) psisize=$(BRCM_PSI_SIZE) logsize=$(BRCM_LOG_SECTION_SIZE) auxfsprcnt=$(BRCM_AUXFS_PERCENT) gponsn=$(BRCM_GPON_SERIAL_NUMBER) gponpw=$(BRCM_GPON_PASSWORD) wlanfeature=$(BRCM_WLAN_FEATURE) --inputfile=$(CFE_FS_KERNEL_IMAGE_NAME)_secureboot --outputfile=$(FLASH_IMAGE_NAME)_secureboot --nvramfile $(HOSTTOOLS_DIR)/nvram.h --nvramdefsfile $(HOSTTOOLS_DIR)/nvram_defaults.h --config=$(HOSTTOOLS_DIR)/local_install/conf/$(TOOLCHAIN_PREFIX).conf; \
+ 	$(HOSTTOOLS_DIR)/addvtoken --endian $(ARCH_ENDIAN) --chip $(or $(TAG_OVERRIDE),$(BRCM_CHIP)) --flashtype NOR --btrm 1 $(FLASH_IMAGE_NAME)_secureboot $(FLASH_IMAGE_NAME)_secureboot.w
+ endif
+ endif
+--- a/hostTools/createimg.pl
++++ b/hostTools/createimg.pl
+@@ -63,6 +63,7 @@ my $arg_mapper = {
+     'gponsn' => sub { my $dstruct=shift; my $val=shift; $dstruct->{'gponSerialNumber'}=$val; },
+     'backupPsi' => sub { my $dstruct=shift; my $val=shift; $dstruct->{'backupPsi'}=$val;$psi_size=$val+0;},
+     'gponpw' => sub { my $dstruct=shift; my $val=shift; $dstruct->{'gponPassword'}=$val; },
++    'wlanfeature' => sub { my $dstruct=shift; my $val=shift; $dstruct->{'wlanParams'}[255]=$val; },
+ #    'inputfile' => sub { my $dstruct=shift; my $val=shift; $inputfile=$val; },
+ #    'outputfile' => sub { my $dstruct=shift; my $val=shift; $outputfile=$val; },
+ 	
+@@ -91,7 +92,7 @@ sub help {
+ 	print("outputfile\t\t input data file\n"); 
+ 	print("--set\t\tsets various nvram data fields thats follows in param=<value> format\n");
+ 	printf("\t\tCurrently, these fields can be preset in the NVRAM_DATA structure\n"); 
+-	printf("\t\tmisc1 misc2 misc3 misc4 boardid voiceboardid numbermac macaddr tp psisize\n");
++	printf("\t\tmisc1 misc2 misc3 misc4 boardid voiceboardid numbermac macaddr tp psisize wlanfeature\n");
+ 	printf("\t\tflblksz logsize auxfsprcnt gponsn backupPsi gponpw\n");
+ 	printf("Examples:\n\tcreateimg.pl --set boardid=963138REF_P502 voiceboardid=  numbermac=11 macaddr=02:10:18:01:00:01 tp=0 psisize=48 logsize= auxfsprcnt= gponsn= gponpw= inputfile=bcm963138BGWV_cfe_fs_kernel outputfile=bcm963138BGWV_flash_image_963138REF_P502\n");
+ 	printf("\tcreateimg.pl  --replace_nvram --offsets=65536,131072,196608  --inputfile=ifile --outputfile=ofile --set boardid=963138REF_P502 --nvram_magic\n");
+--- a/make.common
++++ b/make.common
+@@ -388,6 +388,7 @@ export BRCM_AUXFS_PERCENT BRCM_GPON_SERI
+ export BRCM_VOICE_BOARD_ID BRCM_MAIN_TP_NUM
+ export BRCM_DRIVER_FBOND_DEBUG
+ export BRCM_MISC1_PARTITION_SIZE BRCM_MISC2_PARTITION_SIZE BRCM_MISC3_PARTITION_SIZE BRCM_MISC4_PARTITION_SIZE
++export BRCM_WLAN_FEATURE
+ export BUILD_BRCM_CMS BUILD_BRCM_HNDROUTER BUILD_HND_MFG BUILD_HND_NIC BUILD_HND_EAP BUILD_BRCM_CPEROUTER BUILD_BRCM_AIRIQ BUILD_HND_EAP_AP1 BUILD_BRCM_HOSTAPD
+ export BRCM_INCREMENTAL_IMAGE_LOAD
+ export SECURE_BOOT_ARCH SECURE_BOOT_KEY_DIR SECURE_BOOT_TURNKEY SECURE_BOOT_TK_ABORT_TIMEOUT SECURE_BOOT_TK_REQ_FLD SECURE_BOOT_TK_MODE_REQ SECURE_BOOT_TK_MID SECURE_BOOT_TK_KS_OFFS SECURE_BOOT_TK_OID BUILD_SBI_NOHDR BUILD_SBI_SIGN BUILD_SBI_NOHDR_MFG AVS_IMAGE_MAX_SIZE AVS_IMAGE_PATH
+--- a/targets/config.in
++++ b/targets/config.in
+@@ -127,6 +127,7 @@ endmenu
+ string "Build Multi-architecture userspace" BRCM_BUILD_MULTIARCH
+ 
+ string "Board ID" BRCM_BOARD_ID
++int "WLAN Feature" BRCM_WLAN_FEATURE
+ string "Voice Board ID" BRCM_VOICE_BOARD_ID
+ 
+     define_string BRCM_GPON_SERIAL_NUMBER ""
+--- a/hostTools/scripts/bcmImageMaker
++++ b/hostTools/scripts/bcmImageMaker
+@@ -741,6 +741,7 @@ if ($mediatype eq "nand" ) {
+       . " misc2=$ENV{BRCM_MISC2_PARTITION_SIZE}"
+       . " misc3=$ENV{BRCM_MISC3_PARTITION_SIZE}"
+       . " misc4=$ENV{BRCM_MISC4_PARTITION_SIZE}"
++      . " wlanfeature=$ENV{BRCM_WLAN_FEATURE}"
+       . " --wholeflashfile=$image.w"
+       . " --nvramfile $ENV{HOSTTOOLS_DIR}/nvram.h"
+       . " --nvramdefsfile $ENV{HOSTTOOLS_DIR}/nvram_defaults.h"

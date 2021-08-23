@@ -1,0 +1,13 @@
+--- a/userspace/public/apps/bcm_flasher/bcm_flasher.c
++++ b/userspace/public/apps/bcm_flasher/bcm_flasher.c
+@@ -103,7 +103,10 @@ int main(int argc, char *argv[])
+    fclose(fp);
+ 
+    if (imgif_close(imgifHandle, 0) != 0)
++   {
+       fprintf(stderr, "ERROR!!! Did not successfully write image to NAND\n");
++      return -1;
++   }
+    else
+       printf("\nImage flash complete, you may reboot the board\n");
+ 

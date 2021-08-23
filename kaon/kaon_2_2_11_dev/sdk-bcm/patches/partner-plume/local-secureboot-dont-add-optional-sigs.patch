@@ -1,0 +1,28 @@
+--- a/hostTools/PerlLib/BRCM/SBI_DEP.pm
++++ b/hostTools/PerlLib/BRCM/SBI_DEP.pm
+@@ -702,14 +702,17 @@ sub prepare_headers {
+               $self->f2var( $cred->{'FLD'}->{'KROT_PUB'} );
+ 
+             #fldOemCot
+-            $hdr->{'fldOemCot'}->{'config'} =
+-              fldOemCotConfig( $arg->{'sec_opt'} );
+-            $hdr->{'fldOemCot'}->{'sig'} =
+-              $self->f2var( $cred->{'FLD'}->{'OEM_DATA_SIG'} );
+-            $hdr->{'fldOemCot'}->{'krsaFldPub'} =
+-              $self->f2var( $cred->{'FLD'}->{'OEM_KRSA_PUB'} );
+-            $hdr->{'fldOemCot'}->{'encrKaesFld'} =
+-              $self->f2var( $cred->{'FLD'}->{'OEM_KAES_ENC'} );
++            if ( defined $arg->{'sec_opt'}->{'oem'} )
++            {
++                $hdr->{'fldOemCot'}->{'config'} =
++                  fldOemCotConfig( $arg->{'sec_opt'} );
++                $hdr->{'fldOemCot'}->{'sig'} =
++                  $self->f2var( $cred->{'FLD'}->{'OEM_DATA_SIG'} );
++                $hdr->{'fldOemCot'}->{'krsaFldPub'} =
++                  $self->f2var( $cred->{'FLD'}->{'OEM_KRSA_PUB'} );
++                $hdr->{'fldOemCot'}->{'encrKaesFld'} =
++                  $self->f2var( $cred->{'FLD'}->{'OEM_KAES_ENC'} );
++            }
+         }
+         if ( $arg->{'sec_mode'} eq 'UNSEC' ) {
+             my $hdr = $hdr->{'SbiAuthHdrBeginning'};

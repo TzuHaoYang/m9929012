@@ -1,0 +1,31 @@
+Index: build-cyrus-opensync-y/userspace/gpl/apps/iptables/Makefile
+===================================================================
+--- build-cyrus-opensync-y.orig/userspace/gpl/apps/iptables/Makefile
++++ build-cyrus-opensync-y/userspace/gpl/apps/iptables/Makefile
+@@ -69,14 +69,13 @@ check_untar_patch_configure: sanity_chec
+ 	        echo "building to $(INSTALL_DIR)"; \
+ 	        cd $(APP); \
+ 	        export PKG_CONFIG_LIBDIR=$(INSTALL_DIR)/lib/gpl; \
+-	        ./configure --host=mips-linux-uclibc \
+-	        --target=mips-linux-uclibc \
++	        ./configure --host=$(TOOLCHAIN_PREFIX) \
++	        --target=$(TOOLCHAIN_PREFIX) \
+ 	        --with-pfxmods="$(PFX_EXT)" \
+             --with-pf4mods="$(PF4_EXT)" \
+             --with-pf6mods="$(PF6_EXT)" \
+             --with-xt-lock-name=/tmp/xtables.lock \
+             $(DO_IPV6) \
+-            --disable-devel \
+             --disable-shared \
+             --disable-nftables \
+             --prefix=$(BCM_FSBUILD_DIR)/gpl \
+@@ -90,7 +89,8 @@ check_untar_patch_configure: sanity_chec
+ 
+ conditional_build: check_untar_patch_configure
+ 	cd $(APP); $(MAKE) -j1 all install
+-	cp -urf $(APP)/include $(BCM_FSBUILD_DIR)/gpl/.
++	cd $(APP); $(MAKE) install DESTDIR="$(BCM_FSBUILD_DIR)/gpl"
++	#cp -urf $(APP)/include $(BCM_FSBUILD_DIR)/gpl/.
+ ifeq ($(APP),iptables-1.4.0)
+ 	install -m 755 $(APP)/iptables $(INSTALL_DIR)/bin
+ ifneq ($(strip $(BUILD_IPV6)),)

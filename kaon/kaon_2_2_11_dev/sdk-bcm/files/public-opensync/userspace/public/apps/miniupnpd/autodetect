@@ -1,0 +1,2 @@
+condition: ifeq ($(BUILD_OPENSYNC),y)
+dependson: gpl/apps/iptables public/libs/uuid public/libs/openssl

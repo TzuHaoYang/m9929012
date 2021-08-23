@@ -1,0 +1,94 @@
+ESW-2365: enet: rework the enet driver error checking for incoming packets
+
+Error checking was done using incorrect and unused flags.
+The calling function never returned those flags.
+
+Also, fix a possible null-dereferencing exception when modifying
+statistics.
+--- a/bcmdrivers/opensource/net/enet/impl5/bcmenet.c
++++ b/bcmdrivers/opensource/net/enet/impl5/bcmenet.c
+@@ -1995,7 +1995,7 @@ static uint32 bcm63xx_rx(void *ptr, uint
+     BlogFcArgs_t fc_args;
+     unsigned char *pBuf = NULL;
+     struct sk_buff *skb = NULL;
+-    int len=0, phy_port_id = -1, no_stat = 0, ret;
++    int len=0, phy_port_id = -1, ret;
+     uint32 rxpktgood = 0;
+     struct rtnl_link_stats64 *vstats;
+     struct enet_device_stats *estats;
+@@ -2022,39 +2022,24 @@ static uint32 bcm63xx_rx(void *ptr, uint
+     {
+         ret = bcmeapi_rx_pkt(pDevCtrl, &pBuf, &pFkb, &len, &gemid, &phy_port_id, &is_wifi_port, &dev, &rxpktgood, &rxContext1, &rxQueue);
+ 
+-        if(ret & BCMEAPI_CTRL_FLAG_TRUE)
++        switch(ret)
+         {
+-            no_stat = 1;
+-            ret &= ~BCMEAPI_CTRL_FLAG_MASK;
+-        }
+-        else
+-        {
+-            no_stat = 0;
+-        }
+-
+-        if(ret != BCMEAPI_CTRL_TRUE)
+-        {
+-            switch(ret)
+-            {
+-                case BCMEAPI_CTRL_BREAK:
+-                    goto after_rx;
+-                case BCMEAPI_CTRL_CONTINUE:
+-                    goto next_rx;
+-                case BCMEAPI_CTRL_SKIP:
+-                    continue;
+-                default:
+-                    break;
+-            }
++            case BCMEAPI_CTRL_BREAK:
++                goto after_rx;
++            case BCMEAPI_CTRL_CONTINUE:
++                goto next_rx;
++            case BCMEAPI_CTRL_SKIP:
++                continue;
++            case BCMEAPI_CTRL_TRUE:
++            default:
++                break;
+         }
+ 
+         dev = phyPortId_to_netdev(phy_port_id, gemid);
+         if(dev == NULL)
+         {
+             /* possibility of corrupted source port in dmaFlag */
+-            if (!no_stat)
+-                pDevCtrl->stats.rx_dropped++;
+-
+-            pDevCtrl->estats.rx_dropped_no_rxdev++;
++            pDevCtrl->stats.rx_dropped++;
+             bcmeapi_kfree_buf_irq(pDevCtrl, pFkb, pBuf);
+             BCM_ENET_INFO("ETH Rcv: Pkt with invalid phy_port_id/vport(0x%x/0x%x) or gemid = 0x%x\n",
+                     phy_port_id, LOGICAL_PORT_TO_VPORT(phy_port_id), gemid);
+@@ -2063,7 +2048,6 @@ static uint32 bcm63xx_rx(void *ptr, uint
+ 
+         vstats = &(((BcmEnet_devctrl *) netdev_priv(dev))->stats);
+         estats = &(((BcmEnet_devctrl *) netdev_priv(dev))->estats);
+-        if (!no_stat)
+         {
+             /* Store packet & byte count in our portion of the device structure */
+             vstats->rx_packets ++;
+--- a/bcmdrivers/opensource/net/enet/shared/bcmenet_common.h
++++ b/bcmdrivers/opensource/net/enet/shared/bcmenet_common.h
+@@ -202,14 +202,6 @@ enum {
+     BCMEAPI_CTRL_FALSE,     /* Return code for FALSE result */
+ };
+ 
+-/*
+-    The flag which could be set in high bits
+-    in API return code if needed.
+-*/
+-enum {
+-    BCMEAPI_CTRL_FLAG_TRUE = (1<<31),       /* The TRUE bit */
+-    BCMEAPI_CTRL_FLAG_MASK = BCMEAPI_CTRL_FLAG_TRUE,    /* The bit mask for all return flag bits */
+-};
+ 
+ typedef struct emac_pm_addr_t {
+     BOOL                valid;          /* 1 indicates the corresponding address is valid */

@@ -1,0 +1,59 @@
+--- a/bcmdrivers/opensource/char/board/bcm963xx/impl1/board_image.c
++++ b/bcmdrivers/opensource/char/board/bcm963xx/impl1/board_image.c
+@@ -1576,6 +1576,18 @@ int setUserNvRam(char *string, int strLe
+         pNvramData->wlanParams[NVRAM_WLAN_PARAMS_LEN-1]= *(unsigned char *)(string+11);
+         writeNvramDataCrcLocked(pNvramData);
+     }
++    else if ( !strncmp(string, "MFGBACKUP", 9 )) { //Nvram backup
++        int t_strlen=strLen-9;
++        if( t_strlen > NVRAM_MFGBACKUP_LEN )
++        {
++            printk("data too large to fit into reserved space");
++            ret = -ENOSPC; 
++        }
++        else {
++            memcpy(pNvramData->chMfgBackup, string + 9, t_strlen);
++            writeNvramDataCrcLocked(pNvramData);
++        }
++    }
+     else if ( !strncmp(string, "WLANDATA", 8 ) ) { //Wlan Data data
+         int t_strlen=strLen-8;
+         int nm=_get_wl_nandmanufacture();
+--- a/shared/opensource/drivers/bcm_nvram_data_impl.c
++++ b/shared/opensource/drivers/bcm_nvram_data_impl.c
+@@ -105,6 +105,7 @@ static struct nvdata_params_struct nps[]
+ 	{NVRAM_PART_INFO, &((NVRAM_DATA*)0)->part_info, sizeof(((NVRAM_DATA*)0)->part_info), COMMA_SEPARATED_SHORT_STRING},
+ 	{NVRAM_ALLOC_DHD, &((NVRAM_DATA*)0)->alloc_dhd, sizeof(((NVRAM_DATA*)0)->alloc_dhd), HEX_STRING},
+ 	{NVRAM_ULFEATURES, &((NVRAM_DATA*)0)->ulFeatures, sizeof(((NVRAM_DATA*)0)->ulFeatures), INTEGER_STRING},
++	{NVRAM_MFGBACKUP, &((NVRAM_DATA*)0)->chMfgBackup, sizeof(((NVRAM_DATA*)0)->chMfgBackup), INTEGER_STRING},
+ 	{NVRAM_CHUNUSED, &((NVRAM_DATA*)0)->chUnused, sizeof(((NVRAM_DATA*)0)->chUnused), INTEGER_STRING},
+ 	{NVRAM_ULCHECKSUM, &((NVRAM_DATA*)0)->ulCheckSum, sizeof(((NVRAM_DATA*)0)->ulCheckSum), HEX_STRING},
+ 	{NULL,NULL, 0, 0}
+--- a/shared/opensource/include/bcm963xx/bcm_hwdefs.h
++++ b/shared/opensource/include/bcm963xx/bcm_hwdefs.h
+@@ -275,6 +275,7 @@ mappaed address is for NAND in the kerSy
+ #define NVRAM_BOOTLDR_SIG_LEN           256
+ #define NVRAM_BOOTLDR_SIG_OFFSET        1024
+ 
++#define NVRAM_MFGBACKUP_LEN             256
+ #define NVRAM_CV_KEY_LEN                514
+ #define NVRAM_MFG_CV_KEY_OFFSET         1280
+ #define NVRAM_OP_CV_KEY_OFFSET          1794
+@@ -577,7 +578,8 @@ typedef struct
+ # define NVFEAT_AVSDISABLED  (1<<0)     // bit indicating avs should be disabled
+ # define NVFEAT_RESERVED    (1<<31)     // bit reserved for erasure detection
+     unsigned int ulFeatures;            // feature bitmask
+-    char chUnused[268]; /* Adjust chUnused such that everything above + chUnused[] + ulCheckSum = 1k */
++    char chMfgBackup[NVRAM_MFGBACKUP_LEN];  // data used for backuping Plume manufacturing data
++    char chUnused[12]; /* Adjust chUnused such that everything above + chUnused[] + ulCheckSum = 1k */
+ 
+ #if (INC_BTRM_BOOT==1) && (defined(_BCM963268_) || defined(CONFIG_BCM963268))
+     unsigned int ulCheckSum_1k;
+@@ -627,6 +629,7 @@ typedef struct
+ #define NVRAM_PART_INFO                  "part_info"
+ #define NVRAM_ALLOC_DHD                  "alloc_dhd"
+ #define NVRAM_ULFEATURES                 "ulFeatures"
++#define NVRAM_MFGBACKUP                  "chMfgBackup"
+ #define NVRAM_CHUNUSED                   "chUnused"
+ #define NVRAM_ULCHECKSUM                 "ulCheckSum"
+ 

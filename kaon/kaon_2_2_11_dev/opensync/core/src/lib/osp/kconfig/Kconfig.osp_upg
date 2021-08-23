@@ -1,0 +1,5 @@
+config OSP_UPG
+    bool "Enable support for OSP UPG API"
+    default y
+    help
+        Use the new OSP UPG API

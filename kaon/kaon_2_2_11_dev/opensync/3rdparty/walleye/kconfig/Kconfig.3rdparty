@@ -1,0 +1,6 @@
+menuconfig 3RDPARTY_WALLEYE
+    bool "Walleye DPI plugin support"
+    default n
+    depends on MANAGER_FSM
+    help
+        Enable Walleye DPI plugin support for FSM

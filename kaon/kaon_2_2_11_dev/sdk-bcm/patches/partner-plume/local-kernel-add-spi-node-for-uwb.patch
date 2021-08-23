@@ -1,0 +1,60 @@
+This patch will create a SPI udev for userspace SPI access
+Decawave userspace program needs SPI access to communicate with UWB IC
+Add CONFIG_DECAWAVE_UWB_SPI kernel config to enable it
+--- a/kernel/dts/47622/947622.dts
++++ b/kernel/dts/47622/947622.dts
+@@ -264,6 +264,14 @@
+ 				};
+ 			};
+ #endif
++#if defined (CONFIG_DECAWAVE_UWB_SPI)
++			uwb_spi: uwb_spi@1 {
++				status = "okay";
++				compatible = "decawave,uwb";
++				reg = <1>; /* chip select 1 */
++				spi-max-frequency = <38000000>;
++			};
++#endif
+ 		};
+ #endif
+ 
+--- a/kernel/dts/gen_dt_bindings
++++ b/kernel/dts/gen_dt_bindings
+@@ -69,6 +69,11 @@ then
+ 	echo "#define CONFIG_PSTORE_RAM ${CONFIG_PSTORE_RAM}" >> ${2}
+ fi
+ 
++if [ "${CONFIG_DECAWAVE_UWB_SPI}" == "y" ]
++then
++	echo "#define CONFIG_DECAWAVE_UWB_SPI ${CONFIG_DECAWAVE_UWB_SPI}" >> ${2}
++fi
++
+ # Support string defines like:
+ # #define SOMETHING "something"
+ # The input here will be ' #define "SOMETHING" "something" ' which means
+--- a/kernel/linux-4.1/Kconfig.bcm
++++ b/kernel/linux-4.1/Kconfig.bcm
+@@ -1,5 +1,13 @@
+ if (BCM_KF_MISC_MAKEFILE)
+ 
++config DECAWAVE_UWB_SPI
++	bool "Support Decawave UWB chip via SPI"
++	depends on SPI
++	select SPI_DEV
++	help
++	   This alters devicetree files to create SPI udev for
++	   Decawave userspace application
++
+ config BRCM_IKOS
+ 	bool "IKOS"
+ 
+--- a/kernel/linux-4.1/drivers/spi/spidev.c
++++ b/kernel/linux-4.1/drivers/spi/spidev.c
+@@ -707,6 +707,7 @@ static struct class *spidev_class;
+ #ifdef CONFIG_OF
+ static const struct of_device_id spidev_dt_ids[] = {
+ 	{ .compatible = "rohm,dh2228fv" },
++	{ .compatible = "decawave,uwb" },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(of, spidev_dt_ids);

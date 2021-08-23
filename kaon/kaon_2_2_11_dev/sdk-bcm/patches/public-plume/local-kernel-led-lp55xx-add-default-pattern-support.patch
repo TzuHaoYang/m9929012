@@ -1,0 +1,113 @@
+Add a default pattern to the lp55xx LED driver.
+
+When using the default_trigger set to "breathe", the breathing pattern was
+accomplished using led-trigger, which set the LED brightness dynamically,
+multiple times per second. This caused the LED to flicker, as it was bound
+to CPU idleness.
+
+lp55xx driver already supported setting predefined patterns, which were then
+available for use via sysfs "led_pattern" file. But it was not possible to
+use this predefined pattern as a way to start it immediately on kernel
+initialization.
+
+This patch modifies lp5562 driver, which is now able to use a predefined
+pattern as the default pattern, which is started immediately on kernel
+boot.
+
+Note that it may not work for other configurations (engine, engine mux,
+RGB channels, ...).
+--- a/kernel/linux-4.1/drivers/leds/leds-lp5562.c
++++ b/kernel/linux-4.1/drivers/leds/leds-lp5562.c
+@@ -400,6 +400,57 @@ static int lp5562_run_predef_led_pattern
+ 	return 0;
+ }
+ 
++static int lp5562_set_default_pattern(struct lp55xx_chip *chip,
++				      struct lp55xx_platform_data *pdata)
++{
++	int ret;
++	int i;
++
++	for (i = 0; i < pdata->num_channels; i++)
++	{
++		struct lp55xx_led_config *cfg = &pdata->led_config[i];
++
++		u8 mode = cfg->default_pattern;
++		u8 mask;
++		u8 val;
++
++		if (mode == 0)
++		{
++			continue;
++		}
++
++
++		if (cfg->chan_nr < 3)
++		{
++			mask = LP5562_ENG_FOR_RGB_M;
++			val = LP5562_ENG_SEL_RGB;
++		}
++		else if (cfg->chan_nr == 3)
++		{
++			mask = LP5562_ENG_FOR_W_M;
++			val = LP5562_ENG1_FOR_W;
++		}
++		else
++		{
++			return -EINVAL;
++		}
++
++		ret = lp5562_run_predef_led_pattern(chip, mode);
++		if (ret)
++		{
++			return ret;
++		}
++
++		ret = lp55xx_update_bits(chip, LP5562_REG_ENG_SEL, mask, val);
++		if (ret)
++		{
++			return ret;
++		}
++	}
++
++	return 0;
++}
++
+ static ssize_t lp5562_store_pattern(struct device *dev,
+ 				struct device_attribute *attr,
+ 				const char *buf, size_t len)
+@@ -509,6 +560,7 @@ static struct lp55xx_device_config lp556
+ 	.dev_attr_group     = &lp5562_group,
+ };
+ 
++
+ static int lp5562_probe(struct i2c_client *client,
+ 			const struct i2c_device_id *id)
+ {
+@@ -558,8 +610,16 @@ static int lp5562_probe(struct i2c_clien
+ 		goto err_register_sysfs;
+ 	}
+ 
++	ret = lp5562_set_default_pattern(chip, pdata);
++	if (ret) {
++		dev_err(&client->dev, "setting default pattern failed\n");
++		goto err_set_def_pattern;
++	}
++
+ 	return 0;
+ 
++err_set_def_pattern:
++	lp55xx_unregister_sysfs(chip);
+ err_register_sysfs:
+ 	lp55xx_unregister_leds(led, chip);
+ err_register_leds:
+--- a/kernel/linux-4.1/include/linux/platform_data/leds-lp55xx.h
++++ b/kernel/linux-4.1/include/linux/platform_data/leds-lp55xx.h
+@@ -23,6 +23,7 @@
+ struct lp55xx_led_config {
+ 	const char *name;
+ 	const char *default_trigger;
++	u8 default_pattern;
+ 	u8 chan_nr;
+ 	u8 led_current; /* mA x10, 0 if led is not connected */
+ 	u8 max_current;

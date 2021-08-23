@@ -1,0 +1,10 @@
+--- a/userspace/public/libs/curl/autodetect
++++ b/userspace/public/libs/curl/autodetect
+@@ -1,2 +1 @@
+-
+-dependson: public/libs/openssl public/libs/nghttp2
++dependson: public/libs/zlib public/libs/openssl public/libs/nghttp2
+--- /dev/null
++++ b/userspace/public/libs/openssl/autodetect
+@@ -0,0 +1 @@
++dependson: public/libs/zlib

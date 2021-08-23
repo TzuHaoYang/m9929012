@@ -1,0 +1,851 @@
+Disable any access to serial console when  device is in production mode.
+
+When the device is in production mode, and development mode is not set,
+disable any access to the serial console. Also, do not wait for user
+input (i.e. boot delay).
+
+Detection whether device is in production or factory mode is done
+through reading the NVRAM field (Feature).
+Detection whether device has development mode set is done through
+parsing the UBI+UBIFS /data partition, and checking if a certain file
+exists on the filesystem.
+
+Use a simplistic function to replace the bootargs values for the
+fields, like the "console", "loglevel", and "silent".
+
+Rationale for this kind of approach:
+- we are already erasing and writing to the CFE NVRAM too many times
+- we would have to read the CFE NVRAM, parse the BootLine field, and
+  remove the "d=1" part - remove the boot delay
+- we would still have to modify CFE RAM, and disable the kernel log
+  output
+--- a/cfe/build/broadcom/bcm63xx_ram/Makefile
++++ b/cfe/build/broadcom/bcm63xx_ram/Makefile
+@@ -342,6 +342,11 @@ CFLAGS += -DBUILD_BOOTCONFIG
+ CFLAGS += -DBUILD_BOOTCONFIG_RECOVERY_FILENAME="\"$(BUILD_BOOTCONFIG_RECOVERY_FILENAME)\""
+ endif
+ 
++ifeq ("$(BUILD_DISABLE_CONSOLE_ACCESS)", "y")
++CFLAGS += -DBUILD_DISABLE_CONSOLE_ACCESS
++CFLAGS += -DBUILD_DISABLE_CONSOLE_ACCESS_FILE=\"$(BUILD_DISABLE_CONSOLE_ACCESS_FILE)\"
++endif
++
+ rdp:
+ ifeq ("$(CONFIG_GPL_RDP)", "1")
+ 	mkdir -p $(XRDP_DIR)
+--- a/cfe/cfe/board/bcm63xx_ram/src/Makefile
++++ b/cfe/cfe/board/bcm63xx_ram/src/Makefile
+@@ -435,3 +435,9 @@ endif
+ ifeq ("$(BUILD_BOOTCONFIG)", "y")
+ BSPOBJS += cfe_bc.o
+ endif
++
++ifeq ("$(BUILD_DISABLE_CONSOLE_ACCESS)", "y")
++BSPOBJS += bcm63xx_console.o
++BSPOBJS += cfe_ubifs.o
++endif
++
+--- a/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_blparms.c
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_blparms.c
+@@ -36,6 +36,8 @@
+ #include "dev_emmcflash.h"
+ #endif
+ 
++#include <stdbool.h>
++
+ /* Boot Loader Parameter Functions
+  *
+  * These functions create a buffer of boot loader parameters that are passed
+@@ -566,6 +568,9 @@ void set_reserved_memory(void)
+ }
+ 
+ extern int erase_psi;
++#if defined(BUILD_DISABLE_CONSOLE_ACCESS)
++extern bool g_disable_console;
++#endif
+ 
+ static void dtb_set_bootcmd(void)
+ {
+@@ -666,6 +671,15 @@ void dtb_install(void)
+         printf("ERROR: Failed to add blparms to DTB\n");
+     }
+ 
++#if defined(BUILD_DISABLE_CONSOLE_ACCESS)
++    if (g_disable_console == true)
++    {
++        dtb_set_bootargs(DTB_ID_CFE, "silent", 1);
++        dtb_replace_bootargs(DTB_ID_CFE, "loglevel", "-1");
++        dtb_replace_bootargs(DTB_ID_CFE, "console", "null");
++    }
++#endif
++
+     /* Retrieve NVRAM parameters */
+     NVRAM_COPY_TO(&nvramData);
+ 
+--- a/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_cmd.c
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_cmd.c
+@@ -117,6 +117,8 @@ static char derived_device_key[] = "key
+ #include "cfe_bc.h"
+ #endif
+ 
++#include "stdbool.h"
++
+ #define je16_to_cpu(x) ((x).v16)
+ #define je32_to_cpu(x) ((x).v32)
+ 
+@@ -133,6 +135,13 @@ extern int LZ4_decompress_fast (const ch
+ #define LA_DEFAULT_FLAGS    0x0
+ #endif
+ 
++
++#if defined(BUILD_DISABLE_CONSOLE_ACCESS)
++bool extra_part_file_exists(int extra_part, const char *filename);
++#endif
++
++bool g_disable_console = false;
++
+ // global 
+ int g_processing_cmd = 0;
+ unsigned short g_force_mode = 0;
+@@ -6011,7 +6020,29 @@ void bcm63xx_run_ex(int breakIntoCfe, in
+     memset(&params, 0, sizeof(params));
+ #endif
+ 
+-    if (!breakIntoCfe && runDelay(bootInfo.bootDelay)) {
++#if defined(BUILD_DISABLE_CONSOLE_ACCESS)
++    bool devel_mode;
++    bool fact_mode;
++
++    /* parse the extra partition /data, to see if a certain file exists;
++     * if it does not, disable the serial console any access to it */
++
++    devel_mode = extra_part_file_exists(3, BUILD_DISABLE_CONSOLE_ACCESS_FILE);
++    fact_mode = (((unsigned char)(NVRAM.wlanParams[NVRAM_WLAN_PARAMS_LEN-1])) & WLAN_FEATURE_DHD_MFG_ENABLE)
++            ? true : false;
++
++    if ((devel_mode == true) || (fact_mode == true))
++    {
++        g_disable_console = false;
++    }
++    else
++    {
++        g_disable_console = true;
++    }
++
++#endif
++
++    if ((g_disable_console == true) || ((!breakIntoCfe) && runDelay(bootInfo.bootDelay))) {
+         run_info_t ar = { 0 };
+ 
+         preboot_init();
+@@ -6039,15 +6070,18 @@ void bcm63xx_run_ex(int breakIntoCfe, in
+ /* disable watchdog; stop tracking failsafe boot */
+         cfe_boot_st_complete();
+ #endif
+-    /* We are here because of a user key press OR if *
+-     * auto_run failed to find a valid linux image.  */
+-    
+-    /* Enable console commands */
+-    ui_init_bcm63xx_cmds();
++    if (g_disable_console == false)
++    {
++        /* We are here because of a user key press OR if *
++         * auto_run failed to find a valid linux image.  */
++        /* Enable console commands */
++        ui_init_bcm63xx_cmds();
++
+ #if (defined(_BCM94908_) || defined(_BCM96858_) || defined(_BCM963158_) || defined(_BCM963381_)|| defined(_BCM963138_) \
+      || defined(_BCM96856_) || defined(_BCM96846_) || defined(_BCM963178_) || defined(_BCM947622_)) && ( (INC_NAND_FLASH_DRIVER==1) || (INC_EMMC_FLASH_DRIVER==1) )
+-    ui_init_otp_cmds();
++        ui_init_otp_cmds();
+ #endif
++    }
+ 
+     /* Enable Network */
+ #if (NONETWORK==0)
+--- /dev/null
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_console.c
+@@ -0,0 +1,58 @@
++#include "bcm63xx_util.h"
++#include "bcm63xx_auth.h"
++#include "flash_api.h"
++#include "shared_utils.h"
++#include "lib_math.h"
++#include "bcm_otp.h"
++#include "bcm63xx_blparms.h"
++#include "btrm_if.h"
++#include "lib_byteorder.h"
++#include "lib_malloc.h"
++#include "rom_parms.h"
++#include "bcm63xx_nvram.h"
++
++#include "cfe_ubifs.h"
++
++
++static void calc_extra_part_layout(struct part_info *info, int parts_num)
++{
++    int i;
++    ssize_t extra = 0;
++
++    info[parts_num-1].part_off = NVRAM.ulNandPartOfsKb[NP_DATA] * 1024;
++    info[parts_num-1].part_size = NVRAM.ulNandPartSizeKb[NP_DATA] * 1024;
++
++    /* skip the /data partition */
++    for (i = BCM_MAX_EXTRA_PARTITIONS - 2; i >= 0; i--)
++    {
++        ssize_t extra_part_size = convert_to_data_partition_entry_to_bytes(NVRAM.part_info[i].size);
++
++        extra += extra_part_size;
++        info[i].part_size = extra_part_size;
++        info[i].part_off = info[parts_num-1].part_off - extra;
++    }
++}
++
++static void get_extra_part_info(struct part_info *info, uint32_t part_idx)
++{
++    struct part_info extra_parts[BCM_MAX_EXTRA_PARTITIONS];
++
++    info->part_erasesize = flash_get_sector_size(0);
++    /* TODO: how do we get this programmatically */
++    info->part_writesize = 2048;
++
++    calc_extra_part_layout(extra_parts, BCM_MAX_EXTRA_PARTITIONS);
++
++    info->part_size = extra_parts[part_idx].part_size;
++    info->part_off = extra_parts[part_idx].part_off;
++}
++
++
++bool extra_part_file_exists(int extra_part, const char *filename)
++{
++    struct part_info part;
++
++    get_extra_part_info(&part, extra_part);
++
++    return ubifs_file_exists(&part, filename);
++}
+--- /dev/null
++++ b/cfe/cfe/include/cfe_ubifs.h
+@@ -0,0 +1,64 @@
++/*  cfe_ubifs - simple parser for UBI + UBIFS partitions
++ *
++ *  Copyright (C) 2018  Plume Design Inc.
++ */
++
++#ifndef CFE_UBIFS_H_INCLUDED
++#define CFE_UBIFS_H_INCLUDED
++
++
++/*
++#include <stdlib.h>
++#include <stdint.h>
++*/
++
++/**
++ * just because Broadcom use their own definitions of uint8_t/uint32_t/...
++ */
++#define __SLONGWORD_TYPE    long int
++# define __SWORD_TYPE                int
++
++#define __OFF_T_TYPE            __SLONGWORD_TYPE
++#define __SSIZE_T_TYPE          __SWORD_TYPE
++# define __STD_TYPE             __extension__ typedef
++
++__STD_TYPE __SSIZE_T_TYPE __ssize_t; /* Type of a byte count, or error.  */
++__STD_TYPE __OFF_T_TYPE __off_t;        /* Type of file sizes and offsets.  */
++
++
++#ifndef __off_t_defined
++# ifndef __USE_FILE_OFFSET64
++typedef __off_t off_t;
++# else
++typedef __off64_t off_t;
++# endif
++# define __off_t_defined
++#endif
++#if defined __USE_LARGEFILE64 && !defined __off64_t_defined
++typedef __off64_t off64_t;
++# define __off64_t_defined
++#endif
++
++
++#ifndef __ssize_t_defined
++typedef __ssize_t ssize_t;
++# define __ssize_t_defined
++#endif
++/**
++ * end
++ */
++
++
++struct part_info
++{
++    ssize_t part_size;
++    ssize_t part_off;
++    ssize_t part_erasesize;
++    ssize_t part_writesize;
++};
++
++
++bool ubifs_file_exists(const struct part_info *part_info, const char *filename);
++
++
++#endif /* CFE_UBIFS_H_INCLUDED */
+--- /dev/null
++++ b/cfe/cfe/main/cfe_ubifs.c
+@@ -0,0 +1,430 @@
++/*  cfe_ubifs - simple parser for UBI + UBIFS partitions
++ *
++ *  Copyright (C) 2018  Plume Design Inc.
++ */
++
++#include "bcm63xx_util.h"
++#include "bcm63xx_auth.h"
++#include "flash_api.h"
++#include "shared_utils.h"
++#include "lib_math.h"
++#include "lib_byteorder.h"
++#include "lib_malloc.h"
++#include "lib_crc.h"
++#include "rom_parms.h"
++
++#include <stdbool.h>
++#include <endian.h>
++#include "cfe_ubifs.h"
++
++
++
++
++/* The version of UBI images supported by this implementation */
++#define UBI_VERSION 1
++
++/* The highest erase counter value supported by this implementation */
++#define UBI_MAX_ERASECOUNTER 0x7FFFFFFF
++
++/* The initial CRC32 value used when calculating CRC checksums */
++#define UBI_CRC32_INIT 0xFFFFFFFFU
++
++/* Erase counter header magic number (ASCII "UBI#") */
++#define UBI_EC_HDR_MAGIC  0x55424923
++/* Volume identifier header magic number (ASCII "UBI!") */
++#define UBI_VID_HDR_MAGIC 0x55424921
++
++
++/* Sizes of UBI headers */
++#define UBI_EC_HDR_SIZE  sizeof(struct ubi_ec_hdr)
++#define UBI_VID_HDR_SIZE sizeof(struct ubi_vid_hdr)
++
++/* Sizes of UBI headers without the ending CRC */
++#define UBI_EC_HDR_SIZE_CRC  (UBI_EC_HDR_SIZE  - sizeof(uint32_t))
++#define UBI_VID_HDR_SIZE_CRC (UBI_VID_HDR_SIZE - sizeof(uint32_t))
++
++
++/**
++ * struct ubi_ec_hdr - UBI erase counter header.
++ */
++struct ubi_ec_hdr {
++    uint32_t magic;
++    uint8_t  version;
++    uint8_t  padding1[3];
++    uint64_t ec; /* Warning: the current limit is 31-bit anyway! */
++    uint32_t vid_hdr_offset;
++    uint32_t data_offset;
++    uint32_t image_seq;
++    uint8_t  padding2[32];
++    uint32_t hdr_crc;
++} __attribute__((packed));
++
++/**
++ * struct ubi_vid_hdr - on-flash UBI volume identifier header.
++ */
++struct ubi_vid_hdr {
++    uint32_t magic;
++    uint8_t  version;
++    uint8_t  vol_type;
++    uint8_t  copy_flag;
++    uint8_t  compat;
++    uint32_t vol_id;
++    uint32_t lnum;
++    uint8_t  padding1[4];
++    uint32_t data_size;
++    uint32_t used_ebs;
++    uint32_t data_pad;
++    uint32_t data_crc;
++    uint8_t  padding2[4];
++    uint64_t sqnum;
++    uint8_t  padding3[12];
++    uint32_t hdr_crc;
++} __attribute__((packed));
++
++
++
++#define UBIFS_NODE_MAGIC  0x06101831
++
++/* Initial CRC32 value used when calculating CRC checksums */
++#define UBIFS_CRC32_INIT 0xFFFFFFFFU
++
++#define UBIFS_FORMAT_VERSION 4
++
++/* Maximum possible key length */
++#define UBIFS_MAX_KEY_LEN 16
++/*
++ * Maximum file name and extended attribute length (must be a multiple of 8,
++ * minus 1).
++ */
++#define UBIFS_MAX_NLEN 255
++
++#define UBIFS_CH_SZ        sizeof(struct ubifs_ch)
++#define UBIFS_DENT_NODE_SZ sizeof(struct ubifs_dent_node)
++#define UBIFS_MAX_DENT_NODE_SZ  (UBIFS_DENT_NODE_SZ + UBIFS_MAX_NLEN + 1)
++
++enum {
++    UBIFS_INO_NODE,
++    UBIFS_DATA_NODE,
++    UBIFS_DENT_NODE,
++    UBIFS_XENT_NODE,
++    UBIFS_TRUN_NODE,
++    UBIFS_PAD_NODE,
++    UBIFS_SB_NODE,
++    UBIFS_MST_NODE,
++    UBIFS_REF_NODE,
++    UBIFS_IDX_NODE,
++    UBIFS_CS_NODE,
++    UBIFS_ORPH_NODE,
++    UBIFS_NODE_TYPES_CNT,
++};
++
++/**
++ * struct ubifs_ch - common header node.
++ */
++struct ubifs_ch {
++    uint32_t magic;
++    uint32_t crc;
++    uint64_t sqnum;
++    uint32_t len;
++    uint8_t  node_type;
++    uint8_t  group_type;
++    uint8_t  padding[2];
++} __attribute__((packed));
++
++/**
++ * struct ubifs_dent_node - directory entry node.
++ */
++struct ubifs_dent_node {
++    struct ubifs_ch ch;
++    uint8_t key[UBIFS_MAX_KEY_LEN];
++    uint64_t inum;
++    uint8_t padding1;
++    uint8_t type;
++    uint16_t nlen;
++    uint8_t padding2[4];
++    uint8_t name[];
++} __attribute__((packed));
++
++
++
++
++
++static void get_sector_from_offset(const struct part_info *info,
++        off_t off, unsigned short *sector, int *sector_offset)
++{
++    off += info->part_off;
++
++    *sector = off / info->part_erasesize;
++    *sector_offset = off % info->part_erasesize;
++}
++
++static int fd_read(const struct part_info *info, off_t off, void *data, ssize_t len)
++{
++    int rv;
++    unsigned short sector;
++    int sector_offset;
++
++    get_sector_from_offset(info, off, &sector, &sector_offset);
++
++    rv = flash_read_buf(sector, sector_offset, data, len);
++    if (rv != len)
++    {
++        return -1;
++    }
++
++    return len;
++}
++
++static uint32_t calc_crc(uint32_t init_crc, void *data, uint32_t len)
++{
++    return lib_get_crc32(data, len, init_crc);
++}
++
++
++static void conv_ubi_ec(struct ubi_ec_hdr *hdr)
++{
++    hdr->magic = be32toh(hdr->magic);
++    /*hdr->version = hdr->version;*/
++    hdr->ec = be64toh(hdr->ec);
++    hdr->vid_hdr_offset = be32toh(hdr->vid_hdr_offset);
++    hdr->data_offset = be32toh(hdr->data_offset);
++    hdr->image_seq = be32toh(hdr->image_seq);
++    hdr->hdr_crc = be32toh(hdr->hdr_crc);
++}
++
++static void conv_ubi_vid(struct ubi_vid_hdr *hdr)
++{
++     hdr->magic = be32toh(hdr->magic);
++     /*hdr->version = hdr->version;*/
++     /*hdr->vol_type = hdr->vol_type;*/
++     /*hdr->copy_flag = hdr->copy_flag;*/
++     /*hdr->compat = hdr->compat;*/
++     hdr->vol_id = be32toh(hdr->vol_id);
++     hdr->lnum = be32toh(hdr->lnum);
++     hdr->data_size = be32toh(hdr->data_size);
++     hdr->used_ebs = be32toh(hdr->used_ebs);
++     hdr->data_pad = be32toh(hdr->data_pad);
++     hdr->data_crc = be32toh(hdr->data_crc);
++     hdr->sqnum = be64toh(hdr->sqnum);
++     hdr->hdr_crc = be32toh(hdr->hdr_crc);
++}
++
++static void conv_ubifs_node(struct ubifs_ch *hdr)
++{
++    hdr->magic = le32toh(hdr->magic);
++    hdr->crc = le32toh(hdr->crc);
++    hdr->sqnum = le64toh(hdr->sqnum);
++    hdr->len = le32toh(hdr->len);
++    /*hdr->node_type = hdr->node_type;*/
++    /*hdr->group_type = hdr->group_type;*/
++}
++
++#if 0
++static void print_ubi_ec(struct ubi_ec_hdr *hdr)
++{
++    printf("UBI EC: magic:0x%08x, version:0x%02x, crc:0x%08x\n",
++        hdr->magic, hdr->version, hdr->hdr_crc);
++    printf("  ec:0x%08llx, vid_hdr_offset:0x%08x data_off:0x%08x, image_seq:0x%08x\n",
++        hdr->ec, hdr->vid_hdr_offset, hdr->data_offset, hdr->image_seq);
++    printf("\n");
++}
++static void print_ubi_vid(struct ubi_vid_hdr *hdr)
++{
++    printf("    UBI VID: magic:0x%08x, version:0x%02x, vol_type:0x%02x, volid:0x%08x, crc:0x%08x\n",
++        hdr->magic, hdr->version, hdr->vol_type, hdr->vol_id, hdr->hdr_crc);
++    printf("      lnum:0x%08x, data_size:0x%08x, used_ebs:0x%08x, data_pad:0x%08x\n",
++        hdr->lnum, hdr->data_size, hdr->used_ebs, hdr->data_pad);
++    printf("      data_crc:0x%08x, sqnum:0x%08llx\n",
++        hdr->data_crc, hdr->sqnum);
++    printf("\n");
++}
++#endif
++#if 0
++static void print_ubifs_node(struct ubifs_ch *node)
++{
++    printf("      UBIFS node: magic:0x%08x, sqnum:0x%08llx, len:0x%08x, crc:0x%08x\n",
++        node->magic, node->sqnum, node->len, node->crc);
++    printf("        node_type:%u, group_type:%u\n",
++        node->node_type, node->group_type);
++    printf("\n");
++}
++#endif
++
++
++static int get_ubi_ec(const struct part_info *info, off_t off, struct ubi_ec_hdr *ubi_ec)
++{
++    int rv;
++    uint32_t crc;
++
++    rv = fd_read(info, off, ubi_ec, UBI_EC_HDR_SIZE);
++    if (rv < 0)
++    {
++        return -1;
++    }
++
++    crc = calc_crc(UBI_CRC32_INIT, ubi_ec, UBI_EC_HDR_SIZE_CRC);
++    conv_ubi_ec(ubi_ec);
++
++    if (!((ubi_ec->magic == UBI_EC_HDR_MAGIC) && (ubi_ec->hdr_crc == crc)))
++    {
++        return -1;
++    }
++
++    return 0;
++}
++
++static int get_ubi_vid(const struct part_info *info, off_t off, struct ubi_vid_hdr *ubi_vid)
++{
++    int rv;
++    uint32_t crc;
++
++    rv = fd_read(info, off, ubi_vid, UBI_VID_HDR_SIZE);
++    if (rv < 0)
++    {
++        return -1;
++    }
++
++    crc = calc_crc(UBI_CRC32_INIT, ubi_vid, UBI_VID_HDR_SIZE_CRC);
++    conv_ubi_vid(ubi_vid);
++
++    if (!((ubi_vid->magic == UBI_VID_HDR_MAGIC) && (ubi_vid->hdr_crc == crc)))
++    {
++        return -1;
++    }
++
++    return 0;
++}
++
++static int get_ubifs_node(const struct part_info *info, off_t off, struct ubifs_ch *ubifs_node, uint32_t maxlen)
++{
++    int rv;
++    uint32_t crc;
++    uint32_t len;
++
++    rv = fd_read(info, off, ubifs_node, sizeof(struct ubifs_ch));
++    if (rv < 0)
++    {
++        return -1;
++    }
++
++    conv_ubifs_node(ubifs_node);
++
++    if (!(ubifs_node->magic == UBIFS_NODE_MAGIC))
++    {
++        return -1;
++    }
++    if ((ubifs_node->node_type < 0) || (ubifs_node->node_type >= UBIFS_NODE_TYPES_CNT))
++    {
++        return -1;
++    }
++
++    len = ubifs_node->len;
++    if (len > maxlen)
++    {
++        return -1;
++    }
++    if ((len + (off % info->part_erasesize)) > info->part_erasesize)
++    {
++        return -1;
++    }
++
++    rv = fd_read(info, off, ubifs_node, len);
++    if (rv < 0)
++    {
++        return -1;
++    }
++
++    /* "+ 8" to calculate CRC over the header without magic and CRC field */
++    crc = calc_crc(UBIFS_CRC32_INIT, ((uint8_t *)ubifs_node)+8, len-8);
++    if (crc != ubifs_node->crc)
++    {
++        return -1;
++    }
++
++    return 0;
++}
++
++
++bool ubifs_file_exists(const struct part_info *part_info, const char *filename)
++{
++    off_t off_block;
++    off_t off_page;
++    bool exists = false;
++    int rv;
++
++    struct ubi_ec_hdr ubi_ec;
++    struct ubi_vid_hdr ubi_vid;
++
++    uint8_t buf[UBIFS_MAX_DENT_NODE_SZ];
++    struct ubifs_ch *ubifs_node = (struct ubifs_ch *)buf;
++    struct ubifs_dent_node *ubifs_dent = (struct ubifs_dent_node *)buf;
++
++    uint64_t sqnum = 0;
++
++    off_block = 0;
++    while (off_block < part_info->part_size)
++    {
++        /* get the UBI Erase Counter header */
++        rv = get_ubi_ec(part_info, off_block, &ubi_ec);
++        if (rv != 0)
++        {
++            off_block += part_info->part_writesize;
++            continue;
++        }
++        /*print_ubi_ec(&ubi_ec);*/
++
++        off_page = off_block + part_info->part_writesize;
++
++        /* get the UBI VID header, which is in the same erase block, on the next page */
++        rv = get_ubi_vid(part_info, off_page, &ubi_vid);
++        if (rv != 0)
++        {
++            off_block += part_info->part_writesize;
++            continue;
++        }
++        /*print_ubi_vid(&ubi_vid);*/
++
++
++        /* on subsequent pages (after UBI VID header), there should be UBIFS nodes */
++        off_page += part_info->part_writesize;
++        while (off_page < (off_block + part_info->part_erasesize))
++        {
++            rv = get_ubifs_node(part_info, off_page, ubifs_node, sizeof(buf));
++            if (rv != 0)
++            {
++                off_page += part_info->part_writesize;
++                continue;
++            }
++
++
++            if (ubifs_node->node_type == UBIFS_DENT_NODE)
++            {
++                if (strncmp((char *)ubifs_dent->name, filename, ubifs_dent->nlen) == 0)
++                {
++                    /* found dir entry node with correct filename;
++                     * save the highest sequence number and
++                     * state if file is present, or deleted */
++                    if (ubifs_node->sqnum > sqnum)
++                    {
++                        sqnum = ubifs_node->sqnum;
++
++                        if (ubifs_dent->inum == 0x0)
++                        {
++                            exists = false;
++                        }
++                        else
++                        {
++                            exists = true;
++                        }
++                    }
++                }
++            }
++
++            off_page += part_info->part_writesize;
++        }
++
++        off_block += part_info->part_erasesize;
++    }
++
++    return exists;
++}
+--- a/make.common
++++ b/make.common
+@@ -651,6 +651,8 @@ export DESKTOP_LINUX BRCM_BOARD BRCM_UCL
+ # these vars are needed by CFE RAM
+ export BUILD_BOOTCONFIG
+ export BUILD_BOOTCONFIG_RECOVERY_FILENAME
++export BUILD_DISABLE_CONSOLE_ACCESS
++export BUILD_DISABLE_CONSOLE_ACCESS_FILE
+ 
+ # update profile BCM_WLIMPL if overridden from CLI
+ ifneq ($(strip $(WLIMPL)),)
+--- a/targets/config.in
++++ b/targets/config.in
+@@ -2826,6 +2826,8 @@ if [ "$BUILD_OPENSYNC" = "y" ]; then
+ fi
+ bool "enable Plume bootconfig in CFE RAM" BUILD_BOOTCONFIG
+ string "set Plume bootconfig recovery image file name" BUILD_BOOTCONFIG_RECOVERY_FILENAME
++bool "prevent access to console" BUILD_DISABLE_CONSOLE_ACCESS
++string "name of the file that prevents access to console" BUILD_DISABLE_CONSOLE_ACCESS_FILE
+ if [ "$BRCM_BOARD_ID" = "96755pathos" ]; then define_string TARGET "PATHOS_BCM52"; fi
+ 
+ endmenu
+--- a/cfe/cfe/board/bcm63xx_ram/include/bcm63xx_dtb.h
++++ b/cfe/cfe/board/bcm63xx_ram/include/bcm63xx_dtb.h
+@@ -83,6 +83,7 @@ int dtb_del_cma_rsvmem(int dtb_id, const
+ int dtb_set_chosen_initrd(int dtb_id, uint64_t initrd_addr, uint64_t initrd_size);
+ int dtb_set_chosen_root(int dtb_id, char * root_device_full_pathname );
+ int dtb_set_bootargs(int dtb_id, char* bootargs, int append);
++int dtb_replace_bootargs(int dtb_id, char* key, char *value);
+ int dtb_get_fdt_size(int dtb_id);
+ const void* dtb_get_fdt(int dtb_id);
+ const void *dtb_get_prop(int dtb_id, const char *node_path,
+--- a/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_dtb.c
++++ b/cfe/cfe/board/bcm63xx_ram/src/bcm63xx_dtb.c
+@@ -782,6 +782,90 @@ err_out:
+     return res;
+ }
+ 
++/**
++ * Simplified function for replacing key=value pair in bootargs with a new value
++ */
++int dtb_replace_bootargs(int dtb_id, char* key, char *value)
++{
++    const void *propdata = NULL;
++    int nodeoffset, res = -1,proplen = 0;
++    void* fdt = get_dtb_ptr(dtb_id);
++
++    char node[sizeof(DT_CHOSEN_NODE)+sizeof(DT_ROOT_NODE)+1];
++    char *prop = DT_BOOTARGS_PROP;
++    char **err_msg = &prop;
++    char *new_bootargs = NULL;
++
++    char *old_pair_start;
++    char *old_pair_end;
++
++    if (!fdt) {
++        return res;
++    }
++
++    sprintf(node,"%s%s",DT_ROOT_NODE,DT_CHOSEN_NODE);
++    node[sizeof(node)-1] = '\0';
++    nodeoffset = fdt_path_offset(fdt, node);
++    if (nodeoffset == -FDT_ERR_NOTFOUND) {
++       *err_msg = node;
++       goto err_out;
++    }
++    propdata = fdt_getprop(fdt, nodeoffset, prop, &proplen);
++
++    /* edit this to include mmc device root node in DT_BOOTARGS */
++    new_bootargs = KMALLOC(DT_BOOTARGS_MAX_SIZE,0);
++    if (!new_bootargs) {
++         goto err_out;
++    }
++    /* copy the previous complete bootargs to new bootargs */
++    memset(new_bootargs, 0x0, DT_BOOTARGS_MAX_SIZE);
++    strncpy(new_bootargs, propdata, DT_BOOTARGS_MAX_SIZE);
++
++    /* find out if original bootargs has the provided key which needs to be replaced */
++    old_pair_start = strstr(new_bootargs, key);
++    if (old_pair_start == NULL)
++    {
++        goto append_new;
++    }
++
++    /* key=oldvalue should be delimited by a '='; if we don't find it here it means
++     * we did not found the correct key.
++     * Simplify -> abort and just append the new key=value */
++    if (old_pair_start[strlen(key)] != '=')
++    {
++        goto append_new;
++    }
++
++    /* find the position of the end of key=oldvalue */
++    old_pair_end = strchr(old_pair_start, ' ');
++    if (old_pair_end == NULL)
++    {
++        /* we are at the end of the string */
++        old_pair_end = old_pair_start + strlen(old_pair_start);
++    }
++
++    memmove(old_pair_start, old_pair_end, strlen(old_pair_end)+1);
++
++append_new:
++    /* append new key=value pair */
++    lib_strncat(new_bootargs, " ", DT_BOOTARGS_MAX_SIZE);
++    lib_strncat(new_bootargs, key, DT_BOOTARGS_MAX_SIZE);
++    lib_strncat(new_bootargs, "=", DT_BOOTARGS_MAX_SIZE);
++    lib_strncat(new_bootargs, value, DT_BOOTARGS_MAX_SIZE);
++
++    res = fdt_setprop_string(fdt, nodeoffset, prop, new_bootargs);
++    if (res) {
++        goto err_out;
++    }
++
++    res = 0;
++err_out:
++    if (res && *err_msg) {
++        printf("Error accessing %s\n",*err_msg);
++    }
++    return res;
++}
++
+ int dtb_set_chosen_root(int dtb_id, char * root_device_full_pathname )
+ {
+     char *bootargs=NULL;

@@ -1,0 +1,68 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/broadcom/include/bcm963xx/bcm_pktfwd.h
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/broadcom/include/bcm963xx/bcm_pktfwd.h
+
+@@ -2088,6 +2088,7 @@
+     };
+     uint16_t            ssid;           /* WLAN interface index */
+     uint16_t            rsvd16;         /* pad a D3LUT element to 16 B */
++    struct net_device * virt_net_device; /* virtual interface's net_device */
+ };
+ 
+ void d3fwd_ext_dump(d3fwd_ext_t *d3fwd_ext);
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/kernel/linux-4.1/net/bridge/br_device.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/kernel/linux-4.1/net/bridge/br_device.c
+
+@@ -109,14 +109,10 @@
+ 			(BLOG_GET_PHYTYPE(dst->dst->dev->path.hw_port_type) == BLOG_WLANPHY) && 
+ 			wl_pktc_req_hook(PKTC_TBL_GET_TX_MODE, 0, 0, 0))
+ 		{
+-			struct net_device *root_dst_dev_p = dst->dst->dev;
++			struct net_device *dst_dev_p = dst->dst->dev;
+ 			unsigned long chainIdx;
+ 
+-			/* Get the root destination device */
+-			while (!netdev_path_is_root(root_dst_dev_p)) {
+-				  root_dst_dev_p = netdev_path_next_dev(root_dst_dev_p);
+-			}
+-			chainIdx = wl_pktc_req_hook(PKTC_TBL_UPDATE, (unsigned long)&(dst->addr.addr[0]), (unsigned long)root_dst_dev_p, 0);
++			chainIdx = wl_pktc_req_hook(PKTC_TBL_UPDATE, (unsigned long)&(dst->addr.addr[0]), (unsigned long)dst_dev_p, 0);
+ 			if (chainIdx != PKTC_INVALID_CHAIN_IDX)
+ 			{
+ 				// Update chainIdx in blog
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/kernel/linux-4.1/net/bridge/br_input.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/kernel/linux-4.1/net/bridge/br_input.c
+
+@@ -343,12 +343,7 @@
+ 			 * Get the root dest device and make sure that we 
+ 			 * are always transmitting to a root device */
+ 
+-				struct net_device *root_dst_dev_p = dst->dst->dev;
+-				/* Get the root destination device */
+-				while (!netdev_path_is_root(root_dst_dev_p)) {
+-					root_dst_dev_p = netdev_path_next_dev(root_dst_dev_p);
+-				}
+- 
++				struct net_device *dst_dev_p = dst->dst->dev;
+ 				/* Update chaining table for DHD on the wl to switch direction only */
+ 				if ( (    from_wl_to_switch
+ #if defined(CONFIG_BCM947189)
+@@ -359,14 +354,14 @@
+ 				{
+ 					dhd_pktc_req_hook(PKTC_TBL_UPDATE,
+ 								     (unsigned long)&(dst->addr.addr[0]),
+-								     (unsigned long)root_dst_dev_p, 0);
++								     (unsigned long)dst_dev_p, 0);
+ 				}
+ 			 
+ 			 	/* Update chaining table for WL (NIC driver) */
+ 				chainIdx = wl_pktc_req_hook ? 
+ 								wl_pktc_req_hook(PKTC_TBL_UPDATE,
+ 								     (unsigned long)&(dst->addr.addr[0]),
+-								     (unsigned long)root_dst_dev_p, 0) : PKTC_INVALID_CHAIN_IDX;
++								     (unsigned long)dst_dev_p, 0) : PKTC_INVALID_CHAIN_IDX;
+ 				if (chainIdx != PKTC_INVALID_CHAIN_IDX) {
+ 					/* Update chainIdx in blog
+ 					 * chainEntry->tx_dev will always be NOT 

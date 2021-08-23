@@ -1,0 +1,6 @@
+digraph {
+    INIT[init=true];
+    INIT -> ENABLE [label="INIT"];
+    ENABLE -> IDLE [label="OVSDB_UPDATE"];
+    IDLE -> IDLE [label="OVSDB_UPDATE"];
+}

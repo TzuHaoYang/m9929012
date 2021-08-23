@@ -1,0 +1,11 @@
+eeName: BEE
+eeVersion: 5.0
+pkgName: dsldiagd
+vendor: Broadcom Ltd.
+description: dslDiag daemon to capture dsl log
+version: 1.2
+pkg-dependency:
+app-name:      dsldiagd
+app-mediaType: tarball
+app-tarballMngrExecutable: dsldiagd
+app-directory: .

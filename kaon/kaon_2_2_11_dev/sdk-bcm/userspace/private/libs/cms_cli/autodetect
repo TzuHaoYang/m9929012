@@ -1,0 +1,1 @@
+dependson: wlcsm omcisdk public/libs/jsonc private/libs/pmd private/libs/omcisdk/core private/libs/omcisdk/omciutil private/libs/omcisdk/rutcms private/libs/omcisdk/pm pm_drv private/libs/ponsys

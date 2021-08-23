@@ -1,0 +1,88 @@
+ALL_OBJS    :=  airiq_app.o
+
+ifneq ($(CLASSIFIER_DEBUG),)
+	SRCBASE =  ../../../../src/
+endif
+ifeq ($(SRCBASE),)
+$(error SRCBASE undefined)
+endif
+
+SRCBASE_ROUTER=$(SRCBASE)/router
+
+$(info TOOLCHAINPATH=$(TOOLCHAINPATH)$n)
+$(info SYSROOT=$(SYSROOT)$n)
+$(info GCCLIBPATH=$(GCCLIBPATH)$n)
+$(info SRCBASE=$(SRCBASE)$n)
+$(info CURDIR=$(CURDIR)$n)
+$(info SRCBASE_ROUTER=$(SRCBASE_ROUTER)$n)
+
+#####################
+# Search for main/components/router (a EAGLE-or-later build)
+#         or main/src/router (a BISON build)
+#####################
+ifneq (,$(findstring main/components/router,$(SRCBASE_ROUTER)))
+#EAGLE or later
+$(info Air-iQ build detected EAGLE or later router path)
+BRANCH_DEP_INCS := -I$(BASEDIR)/components/shared \
+                   -I$(BASEDIR)/components/shared/devctrl_if
+else ifneq (,$(findstring main/src/router,$(SRCBASE_ROUTER)))
+#BISON
+$(info Air-iQ build detected BISON router path)
+BRANCH_DEP_INCS := -I$(BASEDIR)/src/common/include \
+                   -I$(BASEDIR)/src/common/include/devctrl_if
+else
+$(error NOT a recognized router build)
+endif
+#######################
+
+INCDIR   	:=	-I$(TOP)/shared \
+				-I$(SRCBASE)/include \
+				-I$(SRCBASE)/shared/bcmwifi/include \
+				-I$(BUILD_DIR)/userspace/private/libs/wlcsm/include \
+				-I$(AIRIQ_COMPONENTDIR)/include \
+				$(BRANCH_DEP_INCS)
+
+# WL scanning flags
+ifeq ($(CLASSIFIER_DEBUG),)
+CCFLAGS += -DAIRIQ_APP_WL -DBRCM_WL_IOCTL -DLINUX
+CCFLAGS += -DAIRIQ_APP_SIRP
+CCFLAGS += -DWLENT_AIRIQ
+CCFLAGS +=  -static -pthread $(INCDIR)
+LDFLAGS = -L$(AIRIQ_COMPONENTDIR)/prebuilt/$(PLATFORM) -lpthread
+#ROUTER_LDFLAGS = -L$(TOP)/shared -lshared -L$(TOP)/nvram -L$(INSTALLDIR)/nvram/usr/lib  -lnvram
+LDFLAGS += -L$(INSTALLDIR)/lib -L$(SRCBASE_ROUTER)/nvram -L$(INSTALLDIR)/nvram/usr/lib -lnvram -L$(EXTRALIBDIR) -L$(INSTALLDIR)/lib -lwlcsm -lwlbcmshared
+LDFLAGS += $(ROUTER_LDFLAGS) -lgcc_s
+LDFLAGS += $(USR_LDFLAGS)
+AIRIQLIB = -lairiq_sirp
+APP = airiq_app
+
+all: $(APP)
+
+$(APP): $(ALL_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(ALL_OBJS) $(AIRIQLIB)
+#	$(STRIP) $@
+else
+CCFLAGS += -DAIRIQ_APP_SIRP $(INCDIR) -m32 -DCLASSIFIER_DEBUG=1 -DLINUX -ggdb
+LDFLAGS =  -L..  $(STDLIBDIR) -m32  -pthread
+AIRIQLIB = -lc -lairiq_sirp
+APP = classifier_debug
+ALL_OBJS := airiq_app.o
+
+all: $(APP)
+
+$(APP): $(ALL_OBJS)
+	$(CC) $(LDFLAGS) -o $@  $(AIRIQLIB) $(ALL_OBJS)
+endif
+
+$(ALL_OBJS): %.o: %.c
+	@echo " "
+	@echo "Making $<"
+	$(CC) $(CCFLAGS) -c $<
+
+install:
+	install -d $(INSTALLDIR)/bin
+	install -m 755 $(APP) $(INSTALLDIR)/bin
+
+.PHONY: clean all install $(APP) $(ALL_OBJS)
+clean:
+	-rm -f *.o *~ *.a $(APP)

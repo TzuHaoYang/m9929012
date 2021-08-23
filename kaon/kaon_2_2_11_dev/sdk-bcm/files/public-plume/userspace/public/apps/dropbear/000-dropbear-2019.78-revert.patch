@@ -1,0 +1,129 @@
+--- a/buffer.c
++++ b/buffer.c
+@@ -250,7 +250,7 @@ void buf_eatstring(buffer *buf) {
+ 
+ /* Get an uint32 from the buffer and increment the pos */
+ unsigned int buf_getint(buffer* buf) {
+-	unsigned int ret=0;
++	unsigned int ret;
+ 
+ 	LOAD32H(ret, buf_getptr(buf, 4));
+ 	buf_incrpos(buf, 4);
+--- a/configure
++++ b/configure
+@@ -3161,11 +3161,11 @@ fi
+ 
+ 
+ # set compile flags prior to other tests
+-#if test -z "$ORIGCFLAGS" && test "$GCC" = "yes"; then
+-#	{ $as_echo "$as_me:${as_lineno-$LINENO}: No \$CFLAGS set... using \"-Os -W -Wall\" for GCC" >&5
+-#$as_echo "$as_me: No \$CFLAGS set... using \"-Os -W -Wall\" for GCC" >&6;}
+-#	CFLAGS="-Os -W -Wall"
+-#fi
++if test -z "$ORIGCFLAGS" && test "$GCC" = "yes"; then
++	{ $as_echo "$as_me:${as_lineno-$LINENO}: No \$CFLAGS set... using \"-Os -W -Wall\" for GCC" >&5
++$as_echo "$as_me: No \$CFLAGS set... using \"-Os -W -Wall\" for GCC" >&6;}
++	CFLAGS="-Os -W -Wall"
++fi
+ 
+ { $as_echo "$as_me:${as_lineno-$LINENO}: Checking if compiler '$CC' supports -Wno-pointer-sign" >&5
+ $as_echo "$as_me: Checking if compiler '$CC' supports -Wno-pointer-sign" >&6;}
+--- a/debug.h
++++ b/debug.h
+@@ -66,9 +66,7 @@ extern int debug_trace;
+ 
+ /* To debug with GDB it is easier to run with no forking of child processes.
+    You will need to pass "-F" as well. */
+-// BRCM begin
+-#define DEBUG_NOFORK
+-// BRCM end
++/* #define DEBUG_NOFORK */
+ 
+ 
+ /* For testing as non-root on shadowed systems, include the crypt of a password
+--- a/default_options.h
++++ b/default_options.h
+@@ -19,9 +19,9 @@ IMPORTANT: Some options will require "ma
+ #define DROPBEAR_DEFADDRESS ""
+ 
+ /* Default hostkey paths - these can be specified on the command line */
+-#define DSS_PRIV_FILENAME "/var/tmp/dropbear_dss_host_key"
+-#define RSA_PRIV_FILENAME "/var/tmp/dropbear_rsa_host_key"
+-#define ECDSA_PRIV_FILENAME "/var/tmp/dropbear_ecdsa_host_key"
++#define DSS_PRIV_FILENAME "/etc/dropbear/dropbear_dss_host_key"
++#define RSA_PRIV_FILENAME "/etc/dropbear/dropbear_rsa_host_key"
++#define ECDSA_PRIV_FILENAME "/etc/dropbear/dropbear_ecdsa_host_key"
+ 
+ /* Set NON_INETD_MODE if you require daemon functionality (ie Dropbear listens
+  * on chosen ports and keeps accepting connections. This is the default.
+@@ -111,11 +111,11 @@ IMPORTANT: Some options will require "ma
+  * DSS may be necessary to connect to some systems though
+    is not recommended for new keys */
+ #define DROPBEAR_RSA 1
+-// BRCM #define DROPBEAR_DSS 1
++#define DROPBEAR_DSS 1
+ /* ECDSA is significantly faster than RSA or DSS. Compiling in ECC
+  * code (either ECDSA or ECDH) increases binary size - around 30kB
+  * on x86-64 */
+-// BRCM #define DROPBEAR_ECDSA 1
++#define DROPBEAR_ECDSA 1
+ 
+ /* RSA must be >=1024 */
+ #define DROPBEAR_DEFAULT_RSA_SIZE 2048
+@@ -171,10 +171,10 @@ group1 in Dropbear server too */
+ #define DROPBEAR_ZLIB_WINDOW_BITS 15 
+ 
+ /* Whether to do reverse DNS lookups. */
+-// BRCM #define DO_HOST_LOOKUP 0
++#define DO_HOST_LOOKUP 0
+ 
+ /* Whether to print the message of the day (MOTD). */
+-// BRCM #define DO_MOTD 0
++#define DO_MOTD 0
+ #define MOTD_FILENAME "/etc/motd"
+ 
+ /* Authentication Types - at least one required.
+@@ -236,8 +236,7 @@ Homedir is prepended unless path begins
+ 
+ /* And then a global limit to avoid chewing memory if connections 
+  * come from many IPs */
+-// BRCM #define MAX_UNAUTH_CLIENTS 30
+-#define MAX_UNAUTH_CLIENTS 1
++#define MAX_UNAUTH_CLIENTS 30
+ 
+ /* Default maximum number of failed authentication tries (server option) */
+ /* -T server option overrides */
+@@ -245,10 +244,7 @@ Homedir is prepended unless path begins
+ 
+ /* The default file to store the daemon's process ID, for shutdown
+    scripts etc. This can be overridden with the -P flag */
+-// BRCM begin
+-//#define DROPBEAR_PIDFILE "/var/run/dropbear.pid"
+-#define DROPBEAR_PIDFILE "/proc/var/run/dropbear.pid"
+-// BRCM end
++#define DROPBEAR_PIDFILE "/var/run/dropbear.pid"
+ 
+ /* The command to invoke for xauth when using X11 forwarding.
+  * "-q" for quiet */
+--- a/loginrec.h
++++ b/loginrec.h
+@@ -68,7 +68,7 @@
+ 
+ /* The login() library function in libutil is first choice */
+ #if defined(HAVE_LOGIN) && !defined(DISABLE_LOGIN)
+-//#  define USE_LOGIN
++#  define USE_LOGIN
+ 
+ #else
+ /* Simply select your favourite login types. */
+--- a/tcp-accept.c
++++ b/tcp-accept.c
+@@ -62,7 +62,7 @@ static void tcp_acceptor(const struct Li
+ 
+ 	len = sizeof(sa);
+ 
+-	fd = accept(sock, (struct sockaddr*)&sa, (socklen_t *)&len);
++	fd = accept(sock, (struct sockaddr*)&sa, &len);
+ 	if (fd < 0) {
+ 		return;
+ 	}

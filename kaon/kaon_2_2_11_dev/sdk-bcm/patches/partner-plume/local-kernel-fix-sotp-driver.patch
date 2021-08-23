@@ -1,0 +1,47 @@
+sotp: fix sotp kernel driver
+
+The sotp kernel driver did not load, because the device major number
+was already taken by some other driver.
+Also, do not check if SOTP peripheral is accessible or not. Always
+report as it is accessible. It seems to work fine
+--- a/targets/fs.src/etc/make_static_devnodes.sh
++++ b/targets/fs.src/etc/make_static_devnodes.sh
+@@ -50,11 +50,11 @@ mknod /dev/detector c       334 0
+ mknod /dev/blog c           338 0
+ mknod /dev/archer c         339 0
+ mknod /dev/wantypedetect c  340 0
+-mknod /dev/sotp c           341 0
+ mknod /dev/slicslac c       350 1
+ mknod /dev/dect c           351 0
+ mknod /dev/dectdbg c        351 1
+ mknod /dev/ac97 c           360 0
++mknod /dev/sotp c           361 0
+ # ADD NEW PROPIETARY DEVICE NODES ABOVE THIS LINE -- ALL PROPRIETARY MAJOR NUMBERS MUST BE IN THE RANGE 300-512
+ 
+ # All NEW OPENSOURCE DRIVERS SHOULD CREATE SYSFS CLASS/DEVICE
+--- a/bcmdrivers/broadcom/include/bcm963xx/bcm_sotp.h
++++ b/bcmdrivers/broadcom/include/bcm963xx/bcm_sotp.h
+@@ -51,7 +51,7 @@
+ #include <bcmtypes.h>
+ 
+ #define SOTP_IOCTL_MAGIC       'S'
+-#define SOTP_DRV_MAJOR          341
++#define SOTP_DRV_MAJOR          361
+ 
+ #define SOTP_NUM_WORDS_IN_KEYSLOT 8
+ #define SOTP_NUM_ROWS_IN_KEYSLOT 8
+--- a/bcmdrivers/broadcom/char/sotp/impl1/sotp_drv.c
++++ b/bcmdrivers/broadcom/char/sotp/impl1/sotp_drv.c
+@@ -246,10 +246,12 @@ static long unlocked_sotp_ioctl(struct f
+ 
+ static int is_sotp_accessable(void)
+ {
++#if 0
+     if( SOTP->sotp_otp_prog_ctrl == 0xDEADBEEF && SOTP->sotp_otp_ctrl_0 == 0xDEADBEEF )
+     {
+         return -EPERM;
+     }
++#endif
+ 
+     return 0;
+ }

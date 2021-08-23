@@ -1,0 +1,206 @@
+Index: htpdate-1.0.4/htpdate.c
+===================================================================
+--- htpdate-1.0.4.orig/htpdate.c
++++ htpdate-1.0.4/htpdate.c
+@@ -486,6 +486,127 @@ static long getHTTPdate( char *host, char *port, char *proxy, char *proxyport, c
+ }
+ 
+ 
++static int htpdate_adjtimex_tick_freq(double k)
++{
++    struct timex   tmx;
++    int            rv;
++    int            tick_delta;
++    double         freq_ppm;
++    int            freq_delta;
++
++
++    /* Read current kernel frequency */
++    tmx.modes = 0;
++    adjtimex(&tmx);
++    if (debug)
++        printlog(0, "tick_curr=%ld, freq_curr=%ld", tmx.tick, tmx.freq);
++
++    tick_delta = (int)((k * 1e6) / 100.0);
++    freq_ppm =  (k * 1e6) - ((double)tick_delta * 100.0);
++    freq_delta = (int)(freq_ppm * 65536);
++
++    if (debug) {
++        printlog(0, "tick_delta=%d", tick_delta);
++        printlog(0, "freq_residual_ppm=%f --> freq_delta=%d", freq_ppm, freq_delta);
++    }
++
++    if ( seteuid(0) ) {
++        printlog( 1, "seteuid()" );
++        exit(1);
++    }
++
++    if (tick_delta != 0) {
++        tmx.modes = ADJ_TICK;
++        tmx.tick = tmx.tick + tick_delta;
++        printlog(0, "Adjusting tick to %d", tmx.tick);
++        if ((rv = adjtimex(&tmx)) == -1) {
++            printlog(1, "adjtimex ERROR setting tick: %s", strerror(errno));
++            return rv;
++        }
++    }
++    if (freq_delta != 0) {
++        tmx.modes = MOD_FREQUENCY;
++        tmx.freq = tmx.freq + freq_delta;
++        printlog(0, "Adjusting freq to %d", tmx.freq);
++        if ((rv = adjtimex(&tmx)) == -1) {
++            printlog(1, "adjtimex ERROR setting freq: %s", strerror(errno));
++            return rv;
++        }
++    }
++
++    return 0;
++}
++
++
++/* adjtimex max offset adjustment per call [us] */
++#define MAX_OFFSET_DELTA   (500000)
++
++/* Do not wait until the remaining offset adjustments reaches 0, but it is
++ * enough to be less then this tolerance value [us] to converge more quickly
++ * since kernel adjusts remaining ofset more and more slowly as the value
++ * of the remaining offset gets smaller and smaller.  */
++#define OFFSET_TOLERANCE   (20000)    /*  */
++
++static int htpdate_adjtimex_offset(double timedelta)
++{
++    struct timex   tmx;
++    long           offset_total;
++    long           offset;
++    long           n;
++    long           offset_resid;
++    int            rv;
++
++    if (debug)
++        printlog(0, "%s(): timedelta=%f s", __func__, timedelta);
++
++    offset_total = (long) (timedelta * 1e6);
++
++    tmx.modes = 0;
++    adjtimex(&tmx);
++
++    n = labs(offset_total) / MAX_OFFSET_DELTA;
++    offset = sign(offset_total) * MAX_OFFSET_DELTA;
++    offset_resid = offset_total % MAX_OFFSET_DELTA;
++    if (debug)
++        printlog(0, "Will do adjtimex offset %ld times of %ld offset plus %ld offset",
++                 n, offset, offset_resid);
++
++    do
++    {
++        if (n > 0)
++            tmx.offset = offset;
++        else
++            tmx.offset = offset_resid;
++
++        printlog(0, "<%ld> Adjusting offset %ld", n, tmx.offset);
++
++        tmx.modes = ADJ_OFFSET | ADJ_STATUS;
++        tmx.status |= STA_PLL;
++        tmx.status |= STA_FREQHOLD;
++
++        rv = adjtimex(&tmx);
++        if (rv == -1) {
++            printlog(1, "adjtimex failed: %s", strerror(errno));
++            return -1;
++        }
++
++        do
++        {
++            sleep(1);
++            tmx.modes = 0;
++            adjtimex(&tmx);
++        } while (labs(tmx.offset) > OFFSET_TOLERANCE);
++
++        n--;
++    } while (n > 0);
++
++    if (debug)
++        printlog(0, "%s(): timedelta=%f s offset done", __func__, timedelta);
++    return 0;
++}
++
++
++
+ static int setclock( double timedelta, int setmode ) {
+ 	struct timeval		timeofday;
+ 
+@@ -494,6 +615,9 @@ static int setclock( double timedelta, int setmode ) {
+ 		return(0);
+ 	}
+ 
++	if (debug)
++		printlog(0, "%s(): timedelta=%f, mode=%d", __func__, timedelta, setmode);
++
+ 	switch ( setmode ) {
+ 
+ 	case 0:						/* No time adjustment, just print time */
+@@ -994,9 +1118,10 @@ int main( int argc, char *argv[] ) {
+ 
+ 		timeavg = sumtimes/(double)goodtimes;
+ 
++
++		printlog( 0, "#: %d mean: %d average: %.3f", goodtimes, \
++		          mean, timeavg );
+ 		if ( debug ) {
+-			printlog( 0, "#: %d mean: %d average: %.3f", goodtimes, \
+-					mean, timeavg );
+ 			printlog( 0, "Timezone: GMT%+li (%s,%s)", gmtoffset/3600, tzname[0], tzname[1] );
+ 		}
+ 
+@@ -1008,34 +1133,44 @@ int main( int argc, char *argv[] ) {
+ 			if ( precision && sumtimes < goodtimes && sumtimes > -goodtimes )
+ 				timeavg = (double)precision / 1000000 * sign(sumtimes);
+ 
+-            if ( initset && (setmode == 1) && timeavg ) {
++            if ( initset && (setmode == 1 || setmode == 3) && timeavg ) {
+                 printlog( 1, "Initial time set" );
+ 			    if ( setclock( timeavg, 2 ) == 0 )
+                     initset = 0;
+             }
+             else {
+ 			    /* Correct the clock, if not in "adjtimex" mode */
+-			    if ( setclock( timeavg, setmode ) < 0 )
+-					printlog( 1, "Time change failed" );
+-            }
++				if (setmode != 3) {
++					if ( setclock( timeavg, setmode ) < 0 )
++						printlog( 1, "Time change failed" );
++				}
++			}
+ 
+ 			/* Drop root privileges again */
+ 			if ( sw_uid ) seteuid( sw_uid );
+ 
+ 			if ( daemonize_dbg ) {
+ 				if ( starttime ) {
++					time_t diff_time = (time(NULL) - starttime);
++					if (debug)
++						printlog(0, "Last interval diff_time=%d", diff_time);
++
+ 					/* Calculate systematic clock drift */
+-					drift = timeavg / ( time(NULL) - starttime );
++					drift = timeavg / diff_time;
+ 					printlog( 0, "Drift %.2f PPM, %.2f s/day", \
+ 							drift*1e6, drift*86400 );
+ 
++
+ 					/* Adjust system clock */
+ 					if ( setmode == 3 ) {
+ 						starttime = time(NULL);
+ 						/* Adjust the kernel clock */
+-						if ( htpdate_adjtimex( drift ) < 0 )
++						if (htpdate_adjtimex_tick_freq(drift) < 0)
+ 							printlog( 1, "Frequency change failed" );
+ 
++						if (htpdate_adjtimex_offset(timeavg))
++							printlog( 1, "Offset change failed" );
++
+ 						/* Drop root privileges again */
+ 						if ( sw_uid ) seteuid( sw_uid );
+ 					}

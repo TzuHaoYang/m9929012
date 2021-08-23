@@ -1,0 +1,258 @@
+--- a/hostTools/SecureBootUtils/build_sbi.pl
++++ b/hostTools/SecureBootUtils/build_sbi.pl
+@@ -20,6 +20,7 @@ my $in1;          #image to render
+ my $max_size;     #image to render
+ my $out;          #output image
+ my $build_top;    #build_top
++my $sign_script;  #external script used for signing and encryption
+ 
+ GetOptions(
+     "chip=s",     \$chip,     "cred_dir=s",  \$cred_dir,
+@@ -27,7 +28,7 @@ GetOptions(
+     "max_size=s", \$max_size, "sec_mode=s",  \$sec_mode,
+     "sec_opt=s",  \$sec_opt,  "build_top=s", \$build_top,
+     "in=s",       \$in,       "in1=s",       \$in1,
+-    "out=s",      \$out
++    "out=s",      \$out,      "sign_script=s", \$sign_script
+ ) or die("Invalid Option");
+ 
+ sub run {
+@@ -48,6 +49,7 @@ sub run {
+     $args{'in'}        = _unqt($in);
+     $args{'out'}       = _unqt($out);
+     $args{'buildtop'}  = _unqt($build_top);
++    $args{'sign_script'} = _unqt($sign_script);
+ 
+     #Gen2 related parms
+     $args{'max_size'} = _unqt($max_size);
+--- a/hostTools/scripts/bcmImageMaker
++++ b/hostTools/scripts/bcmImageMaker
+@@ -360,6 +360,8 @@ sub gen_sbi_image_v3 {
+ 			'sec_arch'=>"$ENV{SECURE_BOOT_ARCH}", 
+ 			'byteorder'=>"$ENV{ARCH_ENDIAN}",
+ 			'cred_dir' =>nrmz($ENV{SEC_CRED_DIR}),
++			'sign_script' =>nrmz($ENV{SECURE_BOOT_USE_SCRIPT_FOR_SIGN}),
++			'buildtop' =>nrmz($ENV{BUILD_DIR}),
+ 			'in'=>"$cferom");
+ 	if ($ENV{SECURE_BOOT_ENCRYPT_BTLDRS} eq "y") {
+                 print "Packaging gen3 secure boot in which the cfe rom is encrypted. This image expects the bootrom to run ...\n";
+--- a/make.common
++++ b/make.common
+@@ -394,6 +394,7 @@ export BUILD_OPENSYNC
+ export BUILD_BRCM_CMS BUILD_BRCM_HNDROUTER BUILD_HND_MFG BUILD_HND_NIC BUILD_HND_EAP BUILD_BRCM_CPEROUTER BUILD_BRCM_AIRIQ BUILD_HND_EAP_AP1 BUILD_BRCM_HOSTAPD
+ export BRCM_INCREMENTAL_IMAGE_LOAD
+ export SECURE_BOOT_ARCH SECURE_BOOT_KEY_DIR SECURE_BOOT_TURNKEY SECURE_BOOT_TK_ABORT_TIMEOUT SECURE_BOOT_TK_REQ_FLD SECURE_BOOT_TK_MODE_REQ SECURE_BOOT_TK_MID SECURE_BOOT_TK_KS_OFFS SECURE_BOOT_TK_OID BUILD_SBI_NOHDR BUILD_SBI_SIGN BUILD_SBI_NOHDR_MFG AVS_IMAGE_MAX_SIZE AVS_IMAGE_PATH
++export SECURE_BOOT_USE_SCRIPT_FOR_SIGN
+ 
+ endif # PROFILE
+ endif #menuconfig
+@@ -559,13 +560,13 @@ NOHDR_SECOPT=encrypt noheader
+ SIGN_SECOPT=sign
+ endif
+ 
+-BUILD_SBI_NOHDR_MFG=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_arch "$(SECURE_BOOT_ARCH)" --build_top "$(BUILD_DIR)" --sec_mode "MFG" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)" --sec_opt "$(NOHDR_SECOPT)"
++BUILD_SBI_NOHDR_MFG=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_arch "$(SECURE_BOOT_ARCH)" --build_top "$(BUILD_DIR)" --sec_mode "MFG" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)" --sec_opt "$(NOHDR_SECOPT)" --sign_script $(SECURE_BOOT_USE_SCRIPT_FOR_SIGN) --build_top $(BUILD_DIR)
+ endif
+ 
+ #common set of arguments for each feature: MFG SEC/FLD SEC, encrypted non headered (cferam) and Unsecure headered
+-BUILD_SBI_SIGN=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_mode "$(SEC_MODE)" --sec_arch "$(SECURE_BOOT_ARCH)" --sec_opt "$(SIGN_SECOPT)" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)"
+-BUILD_SBI=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_mode "$(SEC_MODE)" --sec_arch "$(SECURE_BOOT_ARCH)" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)"
+-BUILD_SBI_NOHDR=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_arch "$(SECURE_BOOT_ARCH)" --build_top "$(BUILD_DIR)" --sec_mode "$(SEC_MODE)" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)" --sec_opt "$(NOHDR_SECOPT)"
++BUILD_SBI_SIGN=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_mode "$(SEC_MODE)" --sec_arch "$(SECURE_BOOT_ARCH)" --sec_opt "$(SIGN_SECOPT)" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)" --sign_script $(SECURE_BOOT_USE_SCRIPT_FOR_SIGN) --build_top $(BUILD_DIR)
++BUILD_SBI=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_mode "$(SEC_MODE)" --sec_arch "$(SECURE_BOOT_ARCH)" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)" --sign_script $(SECURE_BOOT_USE_SCRIPT_FOR_SIGN) --build_top $(BUILD_DIR)
++BUILD_SBI_NOHDR=$(HOSTTOOLS_DIR)/SecureBootUtils/build_sbi.pl --sec_arch "$(SECURE_BOOT_ARCH)" --build_top "$(BUILD_DIR)" --sec_mode "$(SEC_MODE)" --cred_dir "$(SEC_CRED_DIR)" --byteorder "$(ARCH_ENDIAN)" --chip "$(BRCM_CHIP)" --sec_opt "$(NOHDR_SECOPT)" --sign_script $(SECURE_BOOT_USE_SCRIPT_FOR_SIGN) --build_top $(BUILD_DIR)
+ 
+ ifneq ($(findstring _$(strip $(BRCM_CHIP))_,_4908_6838_6848_6858_63158_6856_6878_),)
+ CFESEC_ROM_FILE = $(CFE_ROM_FILE)
+--- a/targets/config.in
++++ b/targets/config.in
+@@ -2077,6 +2077,7 @@ if [ "$BUILD_SECURE_BOOT" = "y" ]; then
+    fi
+   fi	
+   string "Gen3 Key dir" SECURE_BOOT_KEY_DIR "targets/keys/demo/GEN3"
++  string "Call external script for signing/encryption" SECURE_BOOT_USE_SCRIPT_FOR_SIGN ""
+   bool "Secure Boot Turnkey OTP/SOTP Tools" SECURE_BOOT_TURNKEY
+   if [ "$SECURE_BOOT_TURNKEY" = "y" ]; then
+      choice 'Request Secure Mode' \
+--- a/hostTools/PerlLib/BRCM/SBI_DEP.pm
++++ b/hostTools/PerlLib/BRCM/SBI_DEP.pm
+@@ -945,8 +945,8 @@ sub build_sbi {
+         $auth_hdr->{'auth_len'}
+     );
+     $image   = $auth_hdr->{'bytes'} . $image;
+-    $mfg_sig = $self->_sign_sha256( $keys->{'MFG'}->{'rsa'}, $image, 'MFG' );
+-    $fld_sig = $self->_sign_sha256( $keys->{'FLD'}->{'rsa'}, $image, 'FLD' );
++    $mfg_sig = $self->_sign_sha256( $keys->{'MFG'}->{'rsa'}, $image, 'MFG', $arg->{'sign_script'} );
++    $fld_sig = $self->_sign_sha256( $keys->{'FLD'}->{'rsa'}, $image, 'FLD', $arg->{'sign_script'} );
+     $image   = $unauth_hdr . $image . $fld_sig . $mfg_sig;
+     $self->set_val_at( \$crc, 0, $self->crc32($image), 'u32' );
+     $self->fdump( $arg->{'out'}, $image . $crc );
+@@ -987,7 +987,7 @@ sub build_sbi_gen1 {
+         );
+     }
+ 
+-    my $sig = $self->_sign_sha256( $keys->{'rsa'}, $image, $arg->{'sec_mode'} );
++    my $sig = $self->_sign_sha256( $keys->{'rsa'}, $image, $arg->{'sec_mode'}, $arg->{'sign_script'} );
+ 
+     # legacy calculations inherited from old gen1 image build
+     # this will be removed soon for 63268
+@@ -1045,7 +1045,7 @@ sub build_sbi_gen2 {
+       . $self->f2var( $cred->{'MFG'}->{'PLT'}->{'OP_SIG'} )
+       . $image;
+ 
+-    my $sig = $self->_sign_sha256( $keys->{'rsa'}, $image, $arg->{'sec_mode'} );
++    my $sig = $self->_sign_sha256( $keys->{'rsa'}, $image, $arg->{'sec_mode'}, $arg->{'sign_script'} );
+     $image = $image . $sig;
+ 
+     #printf ("image length 0x%x\n",length $image);
+@@ -1192,8 +1192,8 @@ sub non_header_sbi {
+ 
+     $image = $split_file{'left'} . $image;
+     $image =
+-      $self->_encrypt_aes_128_cbc( $keys->{'ek'}, $keys->{'iv'}, $image, $arg->{'sec_mode'} );
+-    my $sig = $self->_sign_sha256( $keys->{'rsa'}, $image, $arg->{'sec_mode'} );
++      $self->_encrypt_aes_128_cbc( $keys->{'ek'}, $keys->{'iv'}, $image, $arg->{'sec_mode'}, $arg->{'sign_script'} );
++    my $sig = $self->_sign_sha256( $keys->{'rsa'}, $image, $arg->{'sec_mode'}, $arg->{'sign_script'} );
+     $self->fdump( $arg->{'out'}, $sig . $image );
+     $self->run_shell("rm -f $temp $temp.*");
+ }
+@@ -1207,7 +1207,7 @@ sub sign_bi {
+     printf( "Building %s:%s image signature\n",
+         $arg->{'sec_arch'}, $arg->{'sec_mode'} );
+     $keys = $keys->{ $arg->{'sec_mode'} };
+-    $self->sign_sha256( $keys->{'rsa'}, $arg->{'in'}, $arg->{'out'}, $arg->{'sec_mode'} );
++    $self->sign_sha256( $keys->{'rsa'}, $arg->{'in'}, $arg->{'out'}, $arg->{'sec_mode'}, $arg->{'sign_script'} );
+ }
+ 
+ sub build_gen3 {
+@@ -1357,15 +1357,15 @@ sub prepare_trailer {
+ sub gen_sbi_sig {
+     my $self    = shift;
+     my ($arg, $image, $keys) = @_;
+-    my $mfg     = $self->_sign_sha256( $keys->{'MFG'}->{'rsa'}, $image, 'MFG' );
+-    my $fld     = $self->_sign_sha256( $keys->{'FLD'}->{'rsa'}, $image, 'FLD' );
++    my $mfg     = $self->_sign_sha256( $keys->{'MFG'}->{'rsa'}, $image, 'MFG', $arg->{'sign_script'} );
++    my $fld     = $self->_sign_sha256( $keys->{'FLD'}->{'rsa'}, $image, 'FLD', $arg->{'sign_script'} );
+     return { 'mfg' => $mfg, 'fld' => $fld };
+ }
+ 
+ sub encrypt_sbi {
+     my $self = shift;
+-    my ( $keys, $image, $sec_mode ) = @_;
+-    return $self->_encrypt_aes_128_cbc( $keys->{'ek'}, $keys->{'iv'}, $image, $sec_mode );
++    my ( $keys, $image, $sec_mode, $sign_script ) = @_;
++    return $self->_encrypt_aes_128_cbc( $keys->{'ek'}, $keys->{'iv'}, $image, $sec_mode, $sign_script );
+ }
+ 
+ sub init {
+@@ -1426,6 +1426,12 @@ sub build_sbi3 {
+ sub build {
+     my $self = shift;
+     my $arg  = $self->{'args'};
++
++    # prepend path to the script path with an absolute path
++    if ($arg->{'sign_script'} ne "") {
++        $arg->{'sign_script'} = $arg->{'buildtop'} . "/" . $arg->{'sign_script'} ;
++    }
++
+     $arg->{'sec_arch'} eq 'GEN2'
+       ? $self->build_gen2($arg)
+       : $self->build_gen3($arg);
+--- a/hostTools/PerlLib/BRCM/SBI_UTIL.pm
++++ b/hostTools/PerlLib/BRCM/SBI_UTIL.pm
+@@ -308,17 +308,22 @@ sub f2var {
+ 
+ sub _encrypt_aes_128_cbc {
+     my $self = shift;
+-    my ( $ek, $iv, $in, $sec_mode ) = @_;
++    my ( $ek, $iv, $in, $sec_mode, $sign_script ) = @_;
+     my $out;
+     my $_in  = "/tmp/._tmpin_encrypt_$$";
+     my $_out = "/tmp/._tmpout_encrypt_$$";
+-    my $ek_d = $self->f2hex($ek);
+-    my $iv_d = $self->f2hex($iv);
+ 
+     #printf("Encrypting %s \n",unpack("H*",$in));
+     $self->fdump( $_in, $in );
+-    $self->run_shell(
+-        "$self->{openssl} enc -aes-128-cbc -K $ek_d -iv $iv_d -in $_in -out $_out");
++
++    if ($sign_script ne "") {
++        $self->run_shell("$sign_script --encrypt --infile $_in --outfile $_out --sec_mode $sec_mode");
++    }
++    else {
++        my $ek_d = $self->f2hex($ek);
++        my $iv_d = $self->f2hex($iv);
++        $self->run_shell("$self->{openssl} enc -aes-128-cbc -K $ek_d -iv $iv_d -in $_in -out $_out");
++    }
+     $out = $self->f2var($_out);
+ 
+     #printf("%d %s key %s iv %s \n",length $out, unpack("H*",$out),$ek,$iv );
+@@ -403,18 +408,27 @@ sub _sign_sha256 {
+     my $pem  = shift;
+     my $in   = shift;
+     my $sec_mode = shift;
++    my $sign_script = shift;
+     my $out;
+     my $tmpin  = "/tmp/.tmpin_sha_$$";
+     my $tmpout = "/tmp/.tmpout_sha_$$";
+-    if ( !( -e $pem ) ) {
+-        die "Not existing $pem";
+-    }
++
+     $self->fdump( $tmpin, $in );
+ 
+-    #print "Signing $if with $pem res $of\n";
+-    $self->run_shell(
+-"$self->{openssl} dgst -sign $pem -keyform pem -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1 -out $tmpout $tmpin"
+-    );
++    if ($sign_script ne "") {
++        $self->run_shell("$sign_script --sign --infile $tmpin --outfile $tmpout --sec_mode $sec_mode");
++    }
++    else {
++        if ( !( -e $pem ) ) {
++            die "Not existing $pem";
++        }
++
++        #print "Signing $if with $pem res $of\n";
++        $self->run_shell(
++    "$self->{openssl} dgst -sign $pem -keyform pem -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1 -out $tmpout $tmpin"
++        );
++    }
++
+     $out = $self->f2var($tmpout);
+     $self->run_shell("rm -f $tmpout $tmpin");
+     return $out;
+@@ -531,15 +545,25 @@ sub encrypt_aes_128_cbc {
+ 
+ sub sign_sha256 {
+     my $self = shift;
+-    my ( $pem, $if, $of, $sec_mode ) = @_;
+-    if ( !( -e $pem ) or !( -e $if ) ) {
+-        die "Not existing $pem or $if";
++    my ( $pem, $if, $of, $sec_mode, $sign_script ) = @_;
++    if ( !( -e $if ) ) {
++        die "Not existing $if";
+     }
+ 
+-    #print "Signing $if with $pem res $of\n";
+-    $self->run_shell(
+-"$self->{openssl} dgst -sign $pem -keyform pem -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1 -out $of $if"
+-    );
++    if ($sign_script ne "") {
++        $self->run_shell("$sign_script --sign --infile $if --outfile $of --sec_mode $sec_mode");
++    }
++    else {
++
++        if ( !( -e $pem ) ) {
++            die "Not existing $pem";
++        }
++
++        #print "Signing $if with $pem res $of\n";
++        $self->run_shell(
++            "$self->{openssl} dgst -sign $pem -keyform pem -sha256 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:-1 -out $of $if"
++        );
++    }
+ }
+ 
+ sub pipe_init {

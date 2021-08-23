@@ -1,0 +1,36 @@
+--- a/userspace/public/apps/dropbear/Makefile
++++ b/userspace/public/apps/dropbear/Makefile
+@@ -29,6 +29,14 @@ export BCM_BLT32_FLAGS
+ TOOLCHAIN_PREFIX=$(PROFILE_ARCH)-none-linux
+ endif
+ 
++ifneq ($(strip $(BUILD_OPENSYNC)),)
++# ./configure is expected to use --prefix=/ instead of usual
++# --prefix=/usr. This requires adjusting path to dbclient
++# which is not automatically derived by dropbear based on
++# the prefix.
++CFLAGS += -DDROPBEAR_PATH_SSH_PROGRAM=\\\"/bin/dbclient\\\"
++endif
++
+ #
+ # Public apps are only allowed to include header files from the
+ # private and public directories.
+@@ -86,9 +94,18 @@ check_untar_patch_configure: sanity_chec
+ 	fi
+ 
+ conditional_build: check_untar_patch_configure
++ifneq ($(strip $(BUILD_OPENSYNC)),)
++	$(MAKE) -C $(APP) \
++		MULTI=1 \
++		PROGRAMS="dropbear dbclient scp dropbearkey ssh" \
++		SCPPROGRESS=1 \
++		DESTDIR=$(INSTALL_DIR) \
++		inst_dropbearmulti
++else
+ 	cd $(APP); $(MAKE)
+ 	install -m 755 $(APP)/dropbear  $(INSTALL_DIR)/bin/sshd
+ 	install -m 755 $(APP)/dropbearconvert $(INSTALL_DIR)/bin/dropbearconvert
++endif
+ ifneq ($(strip $(BUILD_BTEST_TOOLS)),)
+ 	mkdir -p $(INSTALL_DIR)/etc/dropbear
+ 	ln -fs /var/tmp/dropbear_dss_host_key $(INSTALL_DIR)/etc/dropbear/dropbear_dss_host_key

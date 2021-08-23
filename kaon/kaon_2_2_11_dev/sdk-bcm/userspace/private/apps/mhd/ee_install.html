@@ -1,0 +1,73 @@
+<html>
+  <head>
+    <meta HTTP-EQUIV='Pragma' CONTENT='no-cache'>
+    <link rel='stylesheet' href='tabletab.css' type='text/css'>
+<script language='javascript' src='util.js'></script>
+<script language='javascript'>
+<!-- hide
+
+function btnApply() {
+  var loc = 'ee_install?';
+
+  with ( document.forms[0] ) {
+     // validate URL
+     if (EEurl.value == '') {
+        alert('EE Installation URL is required.');
+        return;
+     };
+     if ( EEurl.value.length > 1024 ) {
+        alert('The length of URL (' + EEurl.value.length + ') is too long [0-1024].');
+        return;
+     };
+     loc += 'url=' + encodeUrl(EEurl.value);
+     // validate user name
+     if ( EEusrname.value.length > 256 ) {
+        alert('The length of user name (' + EEusrname.value.length + ') is too long [0-256].');
+        return;
+     };
+     loc += '&user=' + encodeUrl(EEusrname.value);
+     // validate password
+     if ( EEpwd.value.length > 256 ) {
+        alert('The length of password (' + EEpwd.value.length + ') is too long [0-256].');
+        return;
+     };
+     loc += '&pwd=' + encodeUrl(EEpwd.value);
+  }
+
+  var code = 'location="' + loc + '"';
+
+  eval(code);
+}
+
+
+// done hiding -->
+</script>
+    <title></title>
+  </head>
+  <body>
+  <blockquote>
+  <form>
+    <center>
+    <b>Installation EE configuration</b><br><br>
+    <table border='0' cellpadding='0' cellspacing='0'>
+      <tr>
+        <td class='hd'>EE URL:</td>
+        <td><input type='text' size='32' name='EEurl'></td>
+      </tr>
+      <tr>
+        <td class='hd'>EE username:</td>
+        <td><input type='text' size='32' name='EEusrname'></td>
+      </tr>
+      <tr>
+        <td class='hd'>EE password:</td>
+        <td><input type='password' size='32' name='EEpwd'></td>
+      </tr>
+    </table><br><br>
+      <input type='button' onClick='btnApply()' value='Install'>
+      <input type='button' onclick='history.back(-1)' value='Back'>
+    </center>
+
+  </form>
+  </blockquote>
+  </body>
+</html>

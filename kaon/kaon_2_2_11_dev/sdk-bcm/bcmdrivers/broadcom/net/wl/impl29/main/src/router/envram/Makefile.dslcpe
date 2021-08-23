@@ -1,0 +1,85 @@
+#
+# Linux ENVRAM Makefile
+#
+# $Copyright Broadcom Corporation$
+#
+# $Id: Makefile 679153 2017-01-12 19:36:34Z arishoni $
+#
+
+BUILD_DIR=$(word 1, $(subst /bcmdrivers, /bcmdrivers,$(shell pwd)))
+# include $(TOP)/.config
+include $(BUILD_DIR)/make.common
+
+ifneq (2_4,$(LINUX_VERSION))
+CFLAGS += -DLINUX26
+endif
+#CFLAGS	+= -g -DDEBUG
+CFLAGS	+= -s -O2
+LDFLAGS += -L.
+
+# For non-impl51 , force defined BCA_HNDROUTER for use envram.
+CFLAGS	+= -DBCA_HNDROUTER
+
+# CFLAGS	+= -DBCMDBG
+
+# CFLAGS	+=  -I$(SRCBASE)/include ${WLAN_StdIncPathA} -I$(SRCBASE)/../components/shared -I$(SRCBASE)/../components/wlioctl/include -I$(SRCBASE)/../components/proto/include -I$(SRCBASE)/../components/math/include -I$(SRCBASE)/common/include -I$(SRCBASE)/tools/misc//lzma_src/C/ -Wall
+
+CFLAGS += -I.. -I$(SRCBASE)/include ${WLAN_StdIncPathA} -I$(SRCBASE)/common/include -I$(SRCBASE)/router/shared -Wall 
+CFLAGS += $(WLAN_ComponentIncPath)
+CFLAGS += -I../
+CFLAGS += -I../../../include
+CFLAGS += -I../../../common/include
+CFLAGS += -I../../../shared
+CFLAGS += -I../../../router/shared
+CFLAGS += -I$(SRCBASE)/../components/math/include
+CFLAGS += -I$(SRCBASE)/../src/tools/misc/lzma_src/C
+
+LDFLAGS += -lc
+
+CFILES := $(shell find . -name \*.c)
+
+vpath %.c $(SRCBASE)/shared/ $(SRCBASE)/tools/misc/lzma_src/C/ $(SRCBASE)/../components/math/src
+
+$(warning "$(SRCBASE)/shared/ $(SRCBASE)/tools/misc/lzma_src/C/ $(SRCBASE)/../components/math/src " )
+
+# all: $(if $(CONFIG_ENVRAM_UTILITY),envrams) $(if $(CONFIG_ENVRAM_UTILITY),envram)
+all: envrams envram
+
+install: all
+	install envrams $(INSTALLDIR)/usr/sbin/
+	install envram $(INSTALLDIR)/usr/sbin/
+
+clean:
+	rm -f *.o *.a *.so envram envrams
+
+ifneq ($(strip $(CFILES)),)
+envrams: bcmutils.o bcm_math.o envrams.o LzmaLib.o Alloc.o LzmaEnc.o LzmaDec.o LzFind.o
+	$(CC) $(CFLAGS) $^ -o $@  $(LDFLAGS) 
+	cp -f $@ $@-$(EXT_CPU_ARCH_NAME)
+
+envram: envramc.o
+	$(CC) $(CFLAGS) $^ -o $@  $(LDFLAGS) 
+	cp -f $@ $@-$(EXT_CPU_ARCH_NAME)
+
+else
+# non-Source release
+envram:
+	cp -f $@-$(EXT_CPU_ARCH_NAME) $@
+
+envrams:
+	cp -f $@-$(EXT_CPU_ARCH_NAME) $@
+endif
+
+dynamic: all
+
+#
+# Include the rule for making dependency files.
+# The '-' in front of the second include suppresses
+# error messages when make cannot find the .d files.
+# It will just regenerate them.
+# See Section 4.14 of Gnu Make.
+#
+
+include $(BUILD_DIR)/make.deprules
+
+-include $(OBJS:.o=.d)

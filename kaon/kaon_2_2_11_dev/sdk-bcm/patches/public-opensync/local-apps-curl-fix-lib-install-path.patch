@@ -1,0 +1,18 @@
+--- a/userspace/public/libs/curl/Makefile
++++ b/userspace/public/libs/curl/Makefile
+@@ -51,12 +51,12 @@ build: check_config
+ 		make -C $(LIB)/lib; \
+ 	    make -C $(LIB) install; \
+ 	fi;
+-	mkdir -p $(INSTALL_DIR)/lib/public/
+-	cp -d $(BCM_FSBUILD_DIR)/public/lib/$(LIB)*.so* $(INSTALL_DIR)/lib/public/
++	mkdir -p $(INSTALL_DIR)/lib/
++	cp -d $(BCM_FSBUILD_DIR)/public/lib/$(LIB)*.so* $(INSTALL_DIR)/lib/
+ 	cp -d $(BCM_FSBUILD_DIR)/public/bin/curl $(INSTALL_DIR)/bin/
+ 
+ clean:
+-	-rm -f $(INSTALL_DIR)/lib/public/$(LIB)*.so*
++	-rm -f $(INSTALL_DIR)/lib/$(LIB)*.so*
+ 	-rm -rf $(LIB)
+ 	-rm -f $(INSTALL_DIR)/bin/curl
+ 

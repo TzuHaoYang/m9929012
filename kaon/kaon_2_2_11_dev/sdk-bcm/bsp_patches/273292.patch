@@ -1,0 +1,65 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/opensource/bus/pci/host/impl1/arm/pcie-bcm963xx.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/opensource/bus/pci/host/impl1/arm/pcie-bcm963xx.c
+
+@@ -1472,6 +1472,9 @@
+ 	}
+ 
+ 	if (pdrv->hc_cfg.phypwrmode == 1) {
++	    int   lane;
++	    uint16 block_addr;
++
+ 	    /* Setting received from hardware team for  *** 63138B1 ***
+ 	     * For other platforms the values might need tuning
+ 	     *
+@@ -1480,14 +1483,19 @@
+ 	     *      pcieserdesreg 0x820, 0x17 0x05b7
+ 	     *      pcieserdesreg 0x801, 0x1a 0x4028
+ 	     */
+-	     bcm963xx_pcie_mdio_write(pdrv, 0, 0x001f, 0x4000);
+-	     bcm963xx_pcie_mdio_write(pdrv, 0, 0x0001, 0x000b);
+-	     bcm963xx_pcie_mdio_write(pdrv, 0, 0x0000, 0x0e20);
+-	     bcm963xx_pcie_mdio_write(pdrv, 0, 0x001f, 0x5000);
+-	     bcm963xx_pcie_mdio_write(pdrv, 0, 0x000d, 0x00f0);
++	    for (lane = 0; lane < pdrv->resources.link_width; lane++) {
++	        block_addr = SERDES_TX_CTR1_LN0_OFFSET + lane * SERDES_TX_CTR1_LN_SIZE;
++	        bcm963xx_pcie_mdio_write(pdrv, 0, 0x001f, block_addr);
++	        bcm963xx_pcie_mdio_write(pdrv, 0, 0x0001, 0x000b);
++	        bcm963xx_pcie_mdio_write(pdrv, 0, 0x0000, 0x0e20);
++
++	        block_addr = SERDES_TX_DFE0_LN0_OFFSET + lane * SERDES_TX_DFE0_LN_SIZE;
++	        bcm963xx_pcie_mdio_write(pdrv, 0, 0x001f, block_addr);
++	        bcm963xx_pcie_mdio_write(pdrv, 0, 0x000d, 0x00f0);
+ 
+-	    /* Required to settle the power mode setting */
+-	    mdelay(10);
++	       /* Required to settle the power mode setting */
++	       mdelay(10);
++	    }
+ 
+ 	    HCD_LOG("Core [%d] phy power mode set to [%d]\n", pdrv->core_id,
+ 	        pdrv->hc_cfg.phypwrmode);
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/opensource/bus/pci/host/impl1/arm/pcie-bcm963xx.h
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/bcmdrivers/opensource/bus/pci/host/impl1/arm/pcie-bcm963xx.h
+
+@@ -304,6 +304,19 @@
+ #define G3_PLL_PLL_SSC_STEP_VCOGAIN_SSC_STEP_MASK  (0xFFFF)
+ #define G3_PLL_PLL_SSC_STEP_VCOGAIN_SSC_STEP(s)    ((s) & 0xFFFF)
+ 
++/*
++ * +-----------------------------------------------------
++ * SERDES: GEN2 Registers
++ * +-----------------------------------------------------
++ */
++#define SERDES_TX_AFE_BLOCK_OFFSET                 (0x4000)
++#define SERDES_TX_CTR1_LN0_OFFSET                  (SERDES_TX_AFE_BLOCK_OFFSET + 0x0000)
++#define SERDES_TX_CTR1_LN_SIZE                     0x0010
++#define SERDES_TX_DFE_BLOCK_OFFSET                 (0x5000)
++#define SERDES_TX_DFE0_LN0_OFFSET                  (SERDES_TX_DFE_BLOCK_OFFSET + 0x0000)
++#define SERDES_TX_DFE0_LN_SIZE                     0x0010
++
++
+ #if defined(PCIE0_PHYS_BASE) && defined(PCIE1_PHYS_BASE) && defined(PCIE2_PHYS_BASE) && \
+ 	defined(PCIE3_PHYS_BASE)
+ #define NUM_CORE                    4

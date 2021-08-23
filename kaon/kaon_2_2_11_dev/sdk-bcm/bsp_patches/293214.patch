@@ -1,0 +1,28 @@
+
++++ //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/userspace/private/libs/wlmdm/src/tr181_special.c
+--- //depot/CommEngine/patches/WLAN/PATCH_502L07_P1/userspace/private/libs/wlmdm/src/tr181_special.c
+
+@@ -1346,9 +1346,9 @@
+       else if (cmsUtl_strcmp("wpa_psk", suffix) == 0)
+          CMSMEM_REPLACE_STRING(mbssObj->wpsPsk, value);
+       else if (cmsUtl_strcmp("map", suffix) == 0)
+-         mbssObj->map = atoi(value);
++         mbssObj->map = strtol(value, NULL, 0);
+       else if (cmsUtl_strcmp("band_flag", suffix) == 0)
+-         mbssObj->bandFlag = atoi(value);
++         mbssObj->bandFlag = strtol(value, NULL, 0);
+ 
+       ret = cmsObj_set(mbssObj, &iidStack);
+       cmsObj_free((void **)&mbssObj);
+@@ -1409,9 +1409,9 @@
+       else if(cmsUtl_strcmp("wpa_psk", suffix) == 0)
+          snprintf(value, size, "%s", mbssObj->wpsPsk);
+       else if(cmsUtl_strcmp("map", suffix) == 0)
+-         snprintf(value, size, "%d", mbssObj->map);
++         snprintf(value, size, "0x%x", mbssObj->map);
+       else if (cmsUtl_strcmp("band_flag", suffix) == 0)
+-         snprintf(value, size, "%d", mbssObj->bandFlag);
++         snprintf(value, size, "0x%x", mbssObj->bandFlag);
+ 
+       cmsObj_free((void **)&mbssObj);
+       mdmRet = WLMDM_OK;

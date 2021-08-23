@@ -1,0 +1,283 @@
+The driver maintains csa state both per-bss and
+per-phy.
+
+It maintains a csa timer and a flag per-bss and a
+flag per-phy.
+
+The per-phy flag is used to limit number of
+per-bss csa timer to 0 or 1. When any per-bss csa
+timer is started the per-phy flag is set and is
+subsequently used to prevent starting more.
+
+The per-phy flag was cleared only when csa timer
+completes, ie. timer handler is called.
+
+However there are cases where csa timer can be
+stopped. These cases did not properly clear out
+the per-phy flag.
+
+This - once triggered - led the code to never
+finalize any csa ever again. The driver would go
+through the motions (iovar being successfuly,
+action frame being set, countdowns) but would stop
+in its tracks and never really do the switch itself
+- kind of like in test mode. It would remain on
+the current channel.
+
+Once in effect WM would end up continously
+printing the following when different channel ends
+up being requested:
+
+> Jan  5 08:10:08 WM[2405]: <NOTICE>    MAIN: wl0: topology change: channel 44 @ HT80 -> 60 @ HT80
+> Jan  5 08:10:39 WM[2405]: <NOTICE>    MAIN: wl0: topology change: channel 44 @ HT80 -> 60 @ HT80
+> Jan  5 08:11:10 WM[2405]: <NOTICE>    MAIN: wl0: topology change: channel 44 @ HT80 -> 60 @ HT80
+> Jan  5 08:11:41 WM[2405]: <NOTICE>    MAIN: wl0: topology change: channel 44 @ HT80 -> 60 @ HT80
+
+The chance of triggering it is seemingly low.
+There's a 10msec time slot where if anything
+happens to the bss maintaining the csa timer the
+bug will be hit.
+
+However it seems this is fairly common occurance
+in the field. It hasn't been checked what is
+actually causing this unlikely timings to be hit.
+
+Originally a quick mitigation was done to clear
+out the flag in extra spots.
+
+Later on BCM provided a full fledged fix which is
+this patch. It reworks the timers altogether.
+--- a/bcmdrivers/broadcom/net/wl/impl69/main/src/wl/sys/wlc_csa.c	2021-01-28 11:06:33.201974000 +0530
++++ impl69.rb174520/main/src/wl/sys/wlc_csa.c	2021-02-02 15:49:43.479624000 +0530
+@@ -146,11 +146,14 @@
+ 	uint8 sec_chan_off;		/* Back up of Sec channel offset */
+ 	uint32 mcst;			/* Max Channel Switch Time */
+ 	bcm_notif_h csa_notif_hdl;
++	struct wl_timer *csa_timer;	/* time to switch channel after last beacon */
++	wlc_bsscfg_t *csa_timer_arg_cfg;
+ };
+ 
+ /* local functions */
+ /* module */
+ static int wlc_csa_up(void *ctx);
++static int wlc_csa_down(void *ctx);
+ static int wlc_csa_doiovar(void *ctx, uint32 actionid,
+ 	void *params, uint p_len, void *arg, uint len, uint val_size, struct wlc_if *wlcif);
+ 
+@@ -228,7 +231,6 @@
+ 
+ /* cubby structure and access macros */
+ typedef struct {
+-	struct wl_timer *csa_timer;	/* time to switch channel after last beacon */
+ 	wl_chan_switch_t csa;
+ 	struct {
+ 		chanspec_t chanspec;		/* target chanspec after any adjustments */
+@@ -372,11 +374,18 @@
+ 	}
+ #endif /* STA */
+ 
++	/* init CSA timer */
++	if ((csam->csa_timer =
++	     wl_init_timer(wlc->wl, wlc_csa_timeout, (void *)csam, "csa")) == NULL) {
++		WL_ERROR(("wl%d: %s: wl_init_timer failed\n",
++		          wlc->pub->unit, __FUNCTION__));
++		goto fail;
++	}
+ 	/* keep the module registration the last other add module unregistratin
+ 	 * in the error handling code below...
+ 	 */
+ 	if (wlc_module_register(wlc->pub, wlc_csa_iovars, "csa", csam, wlc_csa_doiovar,
+-	                        NULL, wlc_csa_up, NULL) != BCME_OK) {
++	                        NULL, wlc_csa_up, wlc_csa_down) != BCME_OK) {
+ 		WL_ERROR(("wl%d: %s: wlc_module_register() failed\n",
+ 		          wlc->pub->unit, __FUNCTION__));
+ 		goto fail;
+@@ -410,6 +419,11 @@
+ 	if (csam->csa_notif_hdl != NULL) {
+ 		bcm_notif_delete_list(&csam->csa_notif_hdl);
+ 	}
++	/* delete CSA timer */
++	if (csam->csa_timer != NULL) {
++		wl_free_timer(wlc->wl, csam->csa_timer);
++		csam->csa_timer = NULL;
++	}
+ 	MFREE(wlc->osh, csam, sizeof(wlc_csa_info_t));
+ }
+ 
+@@ -433,6 +447,23 @@
+ }
+ 
+ static int
++wlc_csa_down(void *ctx)
++{
++#ifdef WL11AC
++	wlc_csa_info_t *csam = (wlc_csa_info_t *)ctx;
++	wlc_info_t *wlc = csam->wlc;
++
++	if (WLC_IS_CSA_TIMER_IN_PROGRESS(wlc)) {
++		/* free timer if running */
++		wl_del_timer(wlc->wl, csam->csa_timer);
++		WLC_CLR_CSA_TIMER(wlc);
++	}
++#endif
++
++	return BCME_OK;
++}
++
++static int
+ wlc_csa_doiovar(void *ctx, uint32 actionid,
+ 	void *params, uint p_len, void *arg, uint len, uint val_size, struct wlc_if *wlcif)
+ {
+@@ -615,14 +646,6 @@
+ 	}
+ 	*pcsa = csa;
+ 
+-	/* init CSA timer */
+-	if ((csa->csa_timer =
+-	     wl_init_timer(wlc->wl, wlc_csa_timeout, (void *)cfg, "csa")) == NULL) {
+-		WL_ERROR(("wl%d: %s: wl_init_timer failed\n",
+-		          wlc->pub->unit, __FUNCTION__));
+-		err = BCME_NORESOURCE;
+-		goto fail;
+-	}
+ 	/* Extended Channel Switch set */
+ 	if (BSSCFG_AP(cfg)) {
+ 		wlc_bsscfg_set_ext_cap(cfg, DOT11_EXT_CAP_EXT_CHAN_SWITCHING, TRUE);
+@@ -652,12 +675,6 @@
+ 		(wlc->block_datafifo & DATA_BLOCK_QUIET)) {
+ 		wlc_block_datafifo(wlc, DATA_BLOCK_QUIET, 0);
+ 	}
+-
+-	/* delete CSA timer */
+-	if (csa->csa_timer != NULL) {
+-		wl_free_timer(wlc->wl, csa->csa_timer);
+-		csa->csa_timer = NULL;
+-	}
+ 	/* Extended Channel Switch Clear */
+ 	if (BSSCFG_AP(cfg)) {
+ 		wlc_bsscfg_set_ext_cap(cfg, DOT11_EXT_CAP_EXT_CHAN_SWITCHING, FALSE);
+@@ -716,7 +733,6 @@
+ 	ASSERT(csa != NULL);
+ 
+ 	/* CSA info */
+-	bcm_bprintf(b, "\tcsa->csa_timer %p\n", OSL_OBFUSCATE_BUF(csa->csa_timer));
+ 	bcm_bprintf(b, "\tcsa->csa.mode %d, csa->csa.count %d\n",
+ 	            csa->csa.mode, csa->csa.count);
+ 	bcm_bprintf(b, "\tcsa->csa.chspec 0x%x, csa->csa.reg %d \n",
+@@ -742,7 +758,6 @@
+ wlc_csa_bsscfg_up_down(void *ctx, bsscfg_up_down_event_data_t *evt_data)
+ {
+ 	wlc_csa_info_t *csam = (wlc_csa_info_t *)ctx;
+-	wlc_info_t *wlc = csam->wlc;
+ 	wlc_csa_t *csa = CSA_BSSCFG_CUBBY(csam, evt_data->bsscfg);
+ 
+ 	/* Only process bsscfg down events. */
+@@ -750,10 +765,7 @@
+ 		ASSERT(csa != NULL);
+ 
+ 		csa->csa.count = 0;
+-
+-		/* cancel any csa timer */
+-		evt_data->callbacks_pending =
+-		   (wl_del_timer(wlc->wl, csa->csa_timer) ? 0 : 1);
++		BSSCFG_CLR_CSA_IN_PROGRESS(evt_data->bsscfg);
+ 	}
+ }
+ 
+@@ -830,9 +842,9 @@
+ static void
+ wlc_csa_timeout(void *arg)
+ {
+-	wlc_bsscfg_t *cfg = (wlc_bsscfg_t *)arg;
+-	wlc_info_t *wlc = cfg->wlc;
+-	wlc_csa_info_t *csam = wlc->csa;
++	wlc_csa_info_t *csam = (wlc_csa_info_t*)arg;
++	wlc_bsscfg_t *cfg = csam->csa_timer_arg_cfg;
++	wlc_info_t *wlc = csam->wlc;
+ #ifdef STA
+ 	wlc_bsscfg_t *active_assoc_cfg = AS_IN_PROGRESS_CFG(wlc);
+ #endif // endif
+@@ -944,6 +956,7 @@
+ 	csa->csa.mode = DOT11_CSA_MODE_ADVISORY;
+ 	csa->channel_sw.csa_status = CSA_STATUS_IDLE;
+ 	csam->sec_chan_off = DOT11_EXT_CH_NONE;
++	csam->csa_timer_arg_cfg = NULL;
+ 
+ 	/* unmute data fifo */
+ 	wlc_block_datafifo(wlc, DATA_BLOCK_QUIET, 0);
+@@ -1122,8 +1135,9 @@
+ 	/* Now we only use cfg->channel_sw.msecs as a flag */
+ 	csa->channel_sw.msecs = chanswitch_time;
+ 
+-	wl_del_timer(wlc->wl, csa->csa_timer);
+-	wl_add_timer(wlc->wl, csa->csa_timer, chanswitch_time, 0);
++	wl_del_timer(wlc->wl, csam->csa_timer);
++	wl_add_timer(wlc->wl, csam->csa_timer, chanswitch_time, 0);
++	csam->csa_timer_arg_cfg = cfg;
+ 
+ 	csa->channel_sw.csa_status = CSA_STATUS_INPROGRESS;
+ 	if (BSSCFG_STA(cfg) && BSSCFG_IS_PRIMARY(cfg) && APSTA_ENAB(wlc->pub)) {
+@@ -2230,10 +2244,13 @@
+ 	ASSERT(csa != NULL);
+ 
+ 	if (csa->channel_sw.msecs != 0) {
+-		wl_del_timer(wlc->wl, csa->csa_timer);
+ 		csa->channel_sw.msecs = 0;
+ 	}
+ 	csa->csa.count = 0;
++	if (WLC_IS_CSA_TIMER_IN_PROGRESS(wlc)) {
++		wl_del_timer(wlc->wl, csam->csa_timer);
++		WLC_CLR_CSA_TIMER(wlc);
++	}
+ }
+ 
+ #ifdef AP
+@@ -2674,21 +2691,40 @@
+ 
+ 	/* to updated channel switch count of csa ie. */
+ 	if (--csa->csa.count == 0) {
+-		/* Avoid creating Multiple CSA timer for same radio to address MBSS
+-		 * scenario. One CSA timer per radio will take care of syncronizing
+-		 * same channel across all AP cfg. Routine wlc_do_chanswitch syncronizes
+-		 * same channel for all ap cfg on expiration of csa timer in
+-		 * wlc_csa_timeout.
+-		 */
++		/* Single csa timer per wlc */
++		if (csam->csa_timer_arg_cfg && (csam->csa_timer_arg_cfg != cfg) &&
++			WLC_IS_CSA_TIMER_IN_PROGRESS(wlc)) {
++			/* timer is already running for csa_timer_arg_cfg, but this call
++			 * came for another ap cfg.
++			 * check if csa_timer_arg_cfg is up, return. Else delete old timer
++			 * and re-run timer as may be target chanspec is changed
++			 */
++			if (BSSCFG_AP(csam->csa_timer_arg_cfg) && csam->csa_timer_arg_cfg->up) {
++				return;
++			}
++			if (BSSCFG_STA(csam->csa_timer_arg_cfg)) {
++				/* case:
++				 * 1: APSTA + sta rcvd csa from upstream AP
++				 * 2: APSTA + radar detected at repeater, repeater rcvd csa from
++				 *	upstream AP in response to client csa. Downstream AP
++				 *	running with csa counts but csa timer initiated from
++				 *	sta cfg will help sta + ap to move final chspec.
++				 */
++				return;
++			}
++			WLC_CLR_CSA_TIMER(wlc);
++		}
+ 		if (WLC_IS_CSA_TIMER_IN_PROGRESS(wlc)) {
+ 			WL_INFORM(("wl%d: per radio one CSA timer already running,no need"
+ 				"to create another CSA timer for cfg[%d]\n",
+ 				wlc->pub->unit, WLC_BSSCFG_IDX(cfg)));
+ 			return;
+ 		}
++
+ 		/* set up time to switch channel after beacon is sent */
+-		wl_del_timer(wlc->wl, csa->csa_timer);
+-		wl_add_timer(wlc->wl, csa->csa_timer,
++		wl_del_timer(wlc->wl, csam->csa_timer);
++		csam->csa_timer_arg_cfg = cfg;
++		wl_add_timer(wlc->wl, csam->csa_timer,
+ 			(current_bss->beacon_period < CSA_PRE_SWITCH_TIME ?
+ 			current_bss->beacon_period : CSA_PRE_SWITCH_TIME), 0);
+ 		/* block data traffic but allow control */

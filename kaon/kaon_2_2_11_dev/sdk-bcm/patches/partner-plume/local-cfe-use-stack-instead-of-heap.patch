@@ -1,0 +1,49 @@
+--- a/shared/opensource/flash/nandflash.c
++++ b/shared/opensource/flash/nandflash.c
+@@ -1356,25 +1356,15 @@ static int nand_is_blk_bad(PCFE_NAND_CHI
+     /* spare area not supported in sim/emu environment */
+     return 0; // good block
+ #else
+-#if defined(CFG_RAMAPP)
+-    unsigned char *spare;
+-#else
+-    /* CFE ROM does not have real heap. KMALLOC simply use mem_heapstart memory. 
+-     * as caller of this function already use mem_heapstart, we can't use heap again
+-     * must switch to stack. KFREE is a nop for CFE ROM */
++
+     unsigned char spare[SPARE_MAX_SIZE];
+-#endif
++
+     UINT32 page_addr = (blockNum * pchip->chip_block_size) &  ~(pchip->chip_page_size - 1);
+     int i;
+ 
+-
+     if (blockNum == 0)
+         return 0; // always return good for block 0, because if it's a bad chip quite possibly the board is useless
+ 
+-#if defined(CFG_RAMAPP)
+-    spare = KMALLOC(SPARE_MAX_SIZE, 0);
+-#endif
+-
+     /* Read the spare area of first page and check for bad block indicator */
+     for (i=0; i<2; i+=1, page_addr += pchip->chip_page_size)
+     {
+@@ -1382,18 +1372,15 @@ static int nand_is_blk_bad(PCFE_NAND_CHI
+         {
+             if ( (spare[pchip->chip_bi_index_1] != SPARE_GOOD_MARKER) || (spare[pchip->chip_bi_index_2] != SPARE_GOOD_MARKER))
+             {
+-                KFREE(spare);
+                 return 1; // bad block
+             }
+         }
+         else
+         {
+-            KFREE(spare);
+             return 1;//bad block
+         }
+     }
+ 
+-    KFREE(spare);
+     return 0; // good block
+ #endif
+ }

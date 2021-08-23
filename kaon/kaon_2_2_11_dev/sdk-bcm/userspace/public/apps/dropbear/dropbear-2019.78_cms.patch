@@ -1,0 +1,1142 @@
+diff -Naurp dropbear-2019.78_orig/common-session.c dropbear-2019.78/common-session.c
+--- dropbear-2019.78_orig/common-session.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/common-session.c	2019-03-29 17:44:11.129025622 +0800
+@@ -360,6 +360,9 @@ void send_session_identification() {
+ 	writebuf_enqueue(writebuf);
+ }
+ 
++#ifdef DESKTOP_LINUX
++struct passwd fake_passwd = {"admin", "should-be-salted-admin", 0, 0, "admin user", "/", "/bin/sh"};
++#endif
+ static void read_session_identification() {
+ 	/* max length of 255 chars */
+ 	char linebuf[256];
+@@ -616,7 +619,11 @@ void fill_passwd(const char* username) {
+ 	if (ses.authstate.pw_passwd)
+ 		m_free(ses.authstate.pw_passwd);
+ 
++#ifdef DESKTOP_LINUX
++	pw = &fake_passwd;
++#else
+ 	pw = getpwnam(username);
++#endif
+ 	if (!pw) {
+ 		return;
+ 	}
+diff -Naurp dropbear-2019.78_orig/dbutil.c dropbear-2019.78/dbutil.c
+--- dropbear-2019.78_orig/dbutil.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/dbutil.c	2019-03-29 17:44:11.129025622 +0800
+@@ -67,6 +67,18 @@
+ #include "session.h"
+ #include "atomicio.h"
+ 
++// BRCM begin
++#ifndef SSHD_GENKEY
++#ifdef BRCM_CMS_BUILD
++#undef BASE64
++#include "cms.h"
++#include "cms_cli.h"
++#include "cms_msg.h"
++void *msgHandle=NULL;
++#endif
++#endif
++// BRCM end
++
+ #define MAX_FMT 100
+ 
+ static void generic_dropbear_exit(int exitcode, const char* format, 
+@@ -118,7 +130,12 @@ static void generic_dropbear_exit(int ex
+ 
+ 	snprintf(fmtbuf, sizeof(fmtbuf), "Exited: %s", format);
+ 
+-	_dropbear_log(LOG_INFO, fmtbuf, param);
++// BRCM	_dropbear_log(LOG_INFO, fmtbuf, param);
++#if 1 //inetd
++// no need to close, we are about to exit anyways   close(APP_LISTEN_FD);
++//	close(IPC_CONN_FD);
++	unlink(DROPBEAR_PIDFILE);
++#endif
+ 
+ #if DROPBEAR_FUZZ
+ 	/* longjmp before cleaning up svr_opts */
+@@ -336,6 +353,63 @@ int spawn_command(void(*exec_fn)(const v
+ 	}
+ }
+ 
++#ifdef BRCM_CMS_BUILD
++/* run_shell_command source */
++/* Runs a command with "sh -c". Will close FDs (except stdin/stdout/stderr) and
++ * re-enabled SIGPIPE. If cmd is NULL, will run a login shell.
++ */
++void run_shell_command(const char* cmd, unsigned int maxfd, char* usershell) {
++	char * argv[4];
++	char * baseshell = NULL;
++	unsigned int i;
++	SINT32 msgfd; //brcm
++
++	cmsMsg_getEventHandle(msgHandle, &msgfd);
++
++	baseshell = basename(usershell);
++
++	if (cmd != NULL) {
++		argv[0] = baseshell;
++	} else {
++		/* a login shell should be "-bash" for "/bin/bash" etc */
++		int len = strlen(baseshell) + 2; /* 2 for "-" */
++		argv[0] = (char*)m_malloc(len);
++		snprintf(argv[0], len, "-%s", baseshell);
++	}
++
++	if (cmd != NULL) {
++		argv[1] = "-c";
++		argv[2] = (char*)cmd;
++		argv[3] = NULL;
++	} else {
++		/* construct a shell of the form "-bash" etc */
++		argv[1] = NULL;
++	}
++
++	/* Re-enable SIGPIPE for the executed process */
++	if (signal(SIGPIPE, SIG_DFL) == SIG_ERR) {
++		dropbear_exit("signal() error");
++	}
++
++	/* close file descriptors except stdin/stdout/stderr
++	 * Need to be sure FDs are closed here to avoid reading files as root */
++	for (i = 3; i <= maxfd; i++) {
++		if (i != msgfd) {
++			m_close(i);
++		}
++	}
++
++	/*
++	* The code in the function has been heavily modified for CMS.
++	* Note that we are not doing an execv of the shell.  Instead,
++	* we stay in the current process, which is still sshd, and just
++	* call into cmsCli_run directly.  So we have to undo the sigchild
++	* setting of the parent.  (There may be other settings we need
++	* to undo that would have been automatically undone if we did the exec.
++	*/
++	// execv(usershell, argv);
++}
++#else /* BRCM_CMS_BUILD */
+ /* Runs a command with "sh -c". Will close FDs (except stdin/stdout/stderr) and
+  * re-enabled SIGPIPE. If cmd is NULL, will run a login shell.
+  */
+@@ -377,6 +451,7 @@ void run_shell_command(const char* cmd,
+ 
+ 	execv(usershell, argv);
+ }
++#endif /* BRCM_CMS_BUILD */
+ 
+ #if DEBUG_TRACE
+ void printhex(const char * label, const unsigned char * buf, int len) {
+diff -Naurp dropbear-2019.78_orig/dbutil.h dropbear-2019.78/dbutil.h
+--- dropbear-2019.78_orig/dbutil.h	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/dbutil.h	2019-03-29 17:44:11.129025622 +0800
+@@ -36,6 +36,9 @@
+ void startsyslog(const char *ident);
+ #endif
+ 
++// BRCM
++extern void *msgHandle;
++
+ extern void (*_dropbear_exit)(int exitcode, const char* format, va_list param) ATTRIB_NORETURN;
+ extern void (*_dropbear_log)(int priority, const char* format, va_list param);
+ 
+diff -Naurp dropbear-2019.78_orig/netio.c dropbear-2019.78/netio.c
+--- dropbear-2019.78_orig/netio.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/netio.c	2019-03-29 17:44:11.129025622 +0800
+@@ -4,6 +4,12 @@
+ #include "session.h"
+ #include "debug.h"
+ 
++// BRCM begin
++/* this file does not need the BASE64 define, but CMS needs it as a TR98 type. */
++#undef BASE64
++#include "cms.h"
++// BRCM end
++
+ struct dropbear_progress_connection {
+ 	struct addrinfo *res;
+ 	struct addrinfo *res_iter;
+@@ -501,6 +507,27 @@ int dropbear_listen(const char* address,
+ 	nsock = 0;
+ 	for (res = res0; res != NULL && nsock < sockcount;
+ 			res = res->ai_next) {
++#if 1 //inetd
++		if (nsock == 0)
++		{
++			socks[nsock] = CMS_DYNAMIC_LAUNCH_SERVER_FD;
++			sock = socks[nsock]; /* For clarity */
++
++			/* Various useful socket options */
++			val = 1;
++
++			/* quick timeout */
++			linger.l_onoff = 1;
++			linger.l_linger = 5;
++			setsockopt(sock, SOL_SOCKET, SO_LINGER, (void*)&linger, sizeof(linger));
++
++			/* disable nagle */
++			setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (void*)&val, sizeof(val));
++
++		}
++		else
++		{
++#endif
+ 
+ 		if (allocated_lport > 0) {
+ 			if (AF_INET == res->ai_family) {
+@@ -549,6 +576,7 @@ int dropbear_listen(const char* address,
+ 			TRACE(("bind(%s) failed", port))
+ 			continue;
+ 		}
++		}
+ 
+ 		if (listen(sock, DROPBEAR_LISTEN_BACKLOG) < 0) {
+ 			err = errno;
+diff -Naurp dropbear-2019.78_orig/session.h dropbear-2019.78/session.h
+--- dropbear-2019.78_orig/session.h	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/session.h	2019-03-29 17:44:11.129025622 +0800
+@@ -309,6 +309,10 @@ struct clientsession {
+ /* Global structs storing the state */
+ extern struct sshsession ses;
+ 
++#ifdef DESKTOP_LINUX
++extern struct passwd fake_passwd;
++#endif
++
+ #if DROPBEAR_SERVER
+ extern struct serversession svr_ses;
+ #endif /* DROPBEAR_SERVER */
+diff -Naurp dropbear-2019.78_orig/sshpty.c dropbear-2019.78/sshpty.c
+--- dropbear-2019.78_orig/sshpty.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/sshpty.c	2019-03-29 17:44:11.129025622 +0800
+@@ -27,6 +27,10 @@
+ #undef HAVE_DEV_PTMX
+ #endif
+ 
++#ifdef DESKTOP_LINUX
++#define USE_DEV_PTMX 1
++#endif
++
+ #ifdef HAVE_PTY_H
+ # include <pty.h>
+ #endif
+diff -Naurp dropbear-2019.78_orig/svr-auth.c dropbear-2019.78/svr-auth.c
+--- dropbear-2019.78_orig/svr-auth.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/svr-auth.c	2019-03-29 17:44:11.133025571 +0800
+@@ -62,7 +62,7 @@ void send_msg_userauth_banner(const buff
+ 
+ 	buf_putbyte(ses.writepayload, SSH_MSG_USERAUTH_BANNER);
+ 	buf_putbufstring(ses.writepayload, banner);
+-	buf_putstring(ses.writepayload, "en", 2);
++	buf_putstring(ses.writepayload, (unsigned char *)"en", 2);
+ 
+ 	encrypt_packet();
+ 
+@@ -101,7 +101,7 @@ void recv_msg_userauth_request() {
+ 
+ 	/* only handle 'ssh-connection' currently */
+ 	if (servicelen != SSH_SERVICE_CONNECTION_LEN
+-			&& (strncmp(servicename, SSH_SERVICE_CONNECTION,
++			&& (strncmp((char *)servicename, SSH_SERVICE_CONNECTION,
+ 					SSH_SERVICE_CONNECTION_LEN) != 0)) {
+ 		
+ 		/* TODO - disconnect here */
+@@ -251,7 +251,7 @@ static int checkusername(const char *use
+ 		ses.authstate.username = m_strdup(username);
+ 	} else {
+ 		/* check username hasn't changed */
+-		if (strcmp(username, ses.authstate.username) != 0) {
++		if (strcmp((char *)username, ses.authstate.username) != 0) {
+ 			dropbear_exit("Client trying multiple usernames from %s",
+ 				svr_ses.addrstring);
+ 		}
+@@ -274,6 +274,7 @@ static int checkusername(const char *use
+ 		return DROPBEAR_FAILURE;
+ 	}
+ 
++#ifndef DESKTOP_LINUX
+ 	/* check if we are running as non-root, and login user is different from the server */
+ 	uid = geteuid();
+ 	if (!(DROPBEAR_SVR_MULTIUSER && uid == 0) && uid != ses.authstate.pw_uid) {
+@@ -285,7 +286,7 @@ static int checkusername(const char *use
+ 		ses.authstate.checkusername_failed = 1;
+ 		return DROPBEAR_FAILURE;
+ 	}
+-
++#endif
+ 	/* check for non-root if desired */
+ 	if (svr_opts.norootlogin && ses.authstate.pw_uid == 0) {
+ 		TRACE(("leave checkusername: root login disabled"))
+diff -Naurp dropbear-2019.78_orig/svr-authpasswd.c dropbear-2019.78/svr-authpasswd.c
+--- dropbear-2019.78_orig/svr-authpasswd.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/svr-authpasswd.c	2019-03-29 17:44:11.133025571 +0800
+@@ -29,8 +29,21 @@
+ #include "buffer.h"
+ #include "dbutil.h"
+ #include "auth.h"
+-#include "runopts.h"
+ 
++// BRCM begin
++#ifndef SSHD_GENKEY
++#ifdef BRCM_CMS_BUILD
++#undef BASE64
++#include "cms.h"
++#include "cms_cli.h"
++#include "cms_dal.h"
++#include "cms_seclog.h"
++extern int   glbAccessMode;
++extern UINT8 currPerm;
++extern char  curIpAddr[64];
++#endif
++#endif
++// BRCM end
+ #if DROPBEAR_SVR_PASSWORD_AUTH
+ 
+ /* not constant time when strings are differing lengths. 
+@@ -50,10 +63,18 @@ static int constant_time_strcmp(const ch
+  * appropriate */
+ void svr_auth_password(int valid_user) {
+ 	
++//brcm begin
++#ifndef SSHD_GENKEY
+ 	char * passwdcrypt = NULL; /* the crypt from /etc/passwd or /etc/shadow */
+ 	char * testcrypt = NULL; /* crypt generated from the user's password sent */
+ 	char * password = NULL;
+ 	unsigned int passwordlen;
++#ifdef BRCM_CMS_BUILD
++        CmsSecurityLogData logData = { 0 };
++
++        // brcm add matched flag.
++        int matched = 0;
++#endif
+ 	unsigned int changepw;
+ 
+ 	/* check if client wants to change password */
+@@ -70,6 +91,33 @@ void svr_auth_password(int valid_user) {
+ 		passwdcrypt = ses.authstate.pw_passwd;
+ 		testcrypt = crypt(password, passwdcrypt);
+ 	}
++
++#ifdef BRCM_CMS_BUILD
++        // brcm add local/remote login check
++        // We are doing all this auth checking inside sshd code instead of via proper CLI API.
++        if ((glbAccessMode == NETWORK_ACCESS_LAN_SIDE && \
++            (!strcmp(ses.authstate.username, "user") || !strcmp(ses.authstate.username, "admin"))) ||
++            (glbAccessMode == NETWORK_ACCESS_WAN_SIDE && !strcmp(ses.authstate.username, "support")))
++        {
++            matched = 1;
++
++            /* update cli lib with the application data */
++            cmsCli_setAppData("SSHD", NULL, ses.authstate.username, SSHD_PORT);
++
++            if (!strcmp(ses.authstate.username, "admin"))
++            {
++                currPerm = 0x80; /*PERM_ADMIN */
++            }
++            else if (!strcmp(ses.authstate.username, "support"))
++            {
++                currPerm = 0x40; /* PERM_SUPPORT */
++            }
++            else if (!strcmp(ses.authstate.username, "user"))
++            {
++                currPerm = 0x01;  /* PERM_USER */
++            }
++        }
++
+ 	m_burn(password, passwordlen);
+ 	m_free(password);
+ 
+@@ -105,20 +153,34 @@ void svr_auth_password(int valid_user) {
+ 		return;
+ 	}
+ 
+-	if (constant_time_strcmp(testcrypt, passwdcrypt) == 0) {
++	CMSLOG_SEC_SET_PORT(&logData, SSHD_PORT);
++	CMSLOG_SEC_SET_APP_NAME(&logData, "SSHD");
++	CMSLOG_SEC_SET_USER(&logData, ses.authstate.username);
++	CMSLOG_SEC_SET_SRC_IP(&logData, &curIpAddr[0]);
++	if (constant_time_strcmp(testcrypt, passwdcrypt) == 0 && matched) {
+ 		/* successful authentication */
+-		dropbear_log(LOG_NOTICE, 
+-				"Password auth succeeded for '%s' from %s",
+-				ses.authstate.pw_name,
+-				svr_ses.addrstring);
++   // brcm commented next msg
++		//dropbear_log(LOG_NOTICE, 
++		//		"Password auth succeeded for '%s' from %s",
++		//		ses.authstate.pw_name,
++		//		svr_ses.addrstring);
+ 		send_msg_userauth_success();
++		cmsLog_security(LOG_SECURITY_AUTH_LOGIN_PASS, &logData, NULL);
+ 	} else {
+-		dropbear_log(LOG_WARNING,
+-				"Bad password attempt for '%s' from %s",
+-				ses.authstate.pw_name,
+-				svr_ses.addrstring);
+-		send_msg_userauth_failure(0, 1);
++#ifdef DESKTOP_LINUX
++		dropbear_log(LOG_WARNING, "skip password auth for now, return success");
++		send_msg_userauth_success();
++#else
++//		dropbear_log(LOG_WARNING,
++//				"Bad password attempt for '%s' from %s",
++//				ses.authstate.pw_name,
++//				svr_ses.addrstring);
++//		send_msg_userauth_failure(0, 1);
++#endif
++		cmsLog_security(LOG_SECURITY_AUTH_LOGIN_FAIL, &logData, NULL);
+ 	}
++#endif /* BRCM_CMS_BUILD */
++#endif // brcm end, ifndef SSHD_GENKEY
+ }
+ 
+ #endif
+diff -Naurp dropbear-2019.78_orig/svr-chansession.c dropbear-2019.78/svr-chansession.c
+--- dropbear-2019.78_orig/svr-chansession.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/svr-chansession.c	2019-03-29 17:44:11.133025571 +0800
+@@ -38,6 +38,18 @@
+ #include "runopts.h"
+ #include "auth.h"
+ 
++// BRCM begin
++#ifndef SSHD_GENKEY
++#ifdef BRCM_CMS_BUILD
++#undef BASE64
++#include "cms.h"
++#include "cms_cli.h"
++#include "cms_msg.h"
++extern void *msgHandle;
++#endif
++#endif
++// BRCM end
++
+ /* Handles sessions (either shells or programs) requested by the client */
+ 
+ static int sessioncommand(struct Channel *channel, struct ChanSess *chansess,
+@@ -48,6 +60,7 @@ static int noptycommand(struct Channel *
+ static int ptycommand(struct Channel *channel, struct ChanSess *chansess);
+ static int sessionwinchange(const struct ChanSess *chansess);
+ static void execchild(const void *user_data_chansess);
++//static void execchild(void *user_data_chansess);
+ static void addchildpid(struct ChanSess *chansess, pid_t pid);
+ static void sesssigchild_handler(int val);
+ static void closechansess(const struct Channel *channel);
+@@ -190,7 +203,7 @@ static void send_msg_chansess_exitstatus
+ 
+ 	buf_putbyte(ses.writepayload, SSH_MSG_CHANNEL_REQUEST);
+ 	buf_putint(ses.writepayload, channel->remotechan);
+-	buf_putstring(ses.writepayload, "exit-status", 11);
++	buf_putstring(ses.writepayload, (unsigned char *)"exit-status", 11);
+ 	buf_putbyte(ses.writepayload, 0); /* boolean FALSE */
+ 	buf_putint(ses.writepayload, chansess->exit.exitstatus);
+ 
+@@ -226,12 +239,12 @@ static void send_msg_chansess_exitsignal
+ 
+ 	buf_putbyte(ses.writepayload, SSH_MSG_CHANNEL_REQUEST);
+ 	buf_putint(ses.writepayload, channel->remotechan);
+-	buf_putstring(ses.writepayload, "exit-signal", 11);
++	buf_putstring(ses.writepayload, (unsigned char *)"exit-signal", 11);
+ 	buf_putbyte(ses.writepayload, 0); /* boolean FALSE */
+-	buf_putstring(ses.writepayload, signame, strlen(signame));
++	buf_putstring(ses.writepayload, (unsigned char *)signame, strlen(signame));
+ 	buf_putbyte(ses.writepayload, chansess->exit.exitcore);
+-	buf_putstring(ses.writepayload, "", 0); /* error msg */
+-	buf_putstring(ses.writepayload, "", 0); /* lang */
++	buf_putstring(ses.writepayload, (unsigned char *)"", 0); /* error msg */
++	buf_putstring(ses.writepayload, (unsigned char *)"", 0); /* lang */
+ 
+ 	encrypt_packet();
+ }
+@@ -332,8 +345,8 @@ static void cleanupchansess(const struct
+ 		li = chansess_login_alloc(chansess);
+ 		login_logout(li);
+ 		login_free_entry(li);
+-
+-		pty_release(chansess->tty);
++//BRCM commented next line
++//		pty_release(chansess->tty);
+ 		m_free(chansess->tty);
+ 	}
+ 
+@@ -385,25 +398,25 @@ static void chansessionrequest(struct Ch
+ 	dropbear_assert(chansess != NULL);
+ 	TRACE(("type is %s", type))
+ 
+-	if (strcmp(type, "window-change") == 0) {
++        if (strcmp((char *)type, "window-change") == 0) {
+ 		ret = sessionwinchange(chansess);
+-	} else if (strcmp(type, "shell") == 0) {
++	} else if (strcmp((char *)type, "shell") == 0) {
+ 		ret = sessioncommand(channel, chansess, 0, 0);
+-	} else if (strcmp(type, "pty-req") == 0) {
++	} else if (strcmp((char *)type, "pty-req") == 0) {
+ 		ret = sessionpty(chansess);
+-	} else if (strcmp(type, "exec") == 0) {
++	} else if (strcmp((char *)type, "exec") == 0) {
+ 		ret = sessioncommand(channel, chansess, 1, 0);
+-	} else if (strcmp(type, "subsystem") == 0) {
++	} else if (strcmp((char *)type, "subsystem") == 0) {
+ 		ret = sessioncommand(channel, chansess, 1, 1);
+ #if DROPBEAR_X11FWD
+-	} else if (strcmp(type, "x11-req") == 0) {
++	} else if (strcmp((char *)type, "x11-req") == 0) {
+ 		ret = x11req(chansess);
+ #endif
+ #if DROPBEAR_SVR_AGENTFWD
+-	} else if (strcmp(type, "auth-agent-req@openssh.com") == 0) {
++	} else if (strcmp((char *)type, "auth-agent-req@openssh.com") == 0) {
+ 		ret = svr_agentreq(chansess);
+ #endif
+-	} else if (strcmp(type, "signal") == 0) {
++	} else if (strcmp((char *)type, "signal") == 0) {
+ 		ret = sessionsignal(chansess);
+ 	} else {
+ 		/* etc, todo "env", "subsystem" */
+@@ -440,7 +453,7 @@ static int sessionsignal(const struct Ch
+ 
+ 	i = 0;
+ 	while (signames[i].name != 0) {
+-		if (strcmp(signames[i].name, signame) == 0) {
++		if (strcmp(signames[i].name, (char *)signame) == 0) {
+ 			sig = signames[i].signal;
+ 			break;
+ 		}
+@@ -600,20 +613,23 @@ static int sessionpty(struct ChanSess *
+ 	if (chansess->master != -1) {
+ 		dropbear_exit("Multiple pty requests");
+ 	}
+-	if (pty_allocate(&chansess->master, &chansess->slave, namebuf, 64) == 0) {
++	if (pty_allocate(&chansess->master, &chansess->slave, (char *)namebuf, 64) == 0) {
+ 		TRACE(("leave sessionpty: failed to allocate pty"))
+ 		return DROPBEAR_FAILURE;
+ 	}
+ 	
+-	chansess->tty = m_strdup(namebuf);
++	chansess->tty = (unsigned char*)m_strdup((char *)namebuf);
+ 	if (!chansess->tty) {
+ 		dropbear_exit("Out of memory"); /* TODO disconnect */
+ 	}
+-
++#ifdef DESKTOP_LINUX
++	pw = &fake_passwd;
++#else
+ 	pw = getpwnam(ses.authstate.pw_name);
++#endif
+ 	if (!pw)
+ 		dropbear_exit("getpwnam failed after succeeding previously");
+-	pty_setowner(pw, chansess->tty);
++	pty_setowner(pw, (char *)chansess->tty);
+ 
+ 	/* Set up the rows/col counts */
+ 	sessionwinchange(chansess);
+@@ -681,7 +697,7 @@ static int sessioncommand(struct Channel
+ 		}
+ 		if (issubsys) {
+ #if DROPBEAR_SFTPSERVER
+-			if ((cmdlen == 4) && strncmp(chansess->cmd, "sftp", 4) == 0) {
++			if ((cmdlen == 4) && strncmp((char *)chansess->cmd, "sftp", 4) == 0) {
+ 				m_free(chansess->cmd);
+ 				chansess->cmd = m_strdup(SFTPSERVER_PATH);
+ 			} else 
+@@ -826,7 +842,7 @@ static int ptycommand(struct Channel *ch
+ 		/* redirect stdin/stdout/stderr */
+ 		close(chansess->master);
+ 
+-		pty_make_controlling_tty(&chansess->slave, chansess->tty);
++		pty_make_controlling_tty(&chansess->slave, (char *)chansess->tty);
+ 		
+ 		if ((dup2(chansess->slave, STDIN_FILENO) < 0) ||
+ 			(dup2(chansess->slave, STDERR_FILENO) < 0) ||
+@@ -837,11 +853,13 @@ static int ptycommand(struct Channel *ch
+ 
+ 		close(chansess->slave);
+ 
++#ifndef DESKTOP_LINUX
+ 		/* write the utmp/wtmp login record - must be after changing the
+ 		 * terminal used for stdout with the dup2 above */
+ 		li = chansess_login_alloc(chansess);
+ 		login_login(li);
+ 		login_free_entry(li);
++#endif
+ 
+ #if DO_MOTD
+ 		if (svr_opts.domotd && !chansess->cmd) {
+@@ -871,7 +889,9 @@ static int ptycommand(struct Channel *ch
+ 		}
+ #endif /* DO_MOTD */
+ 
++#ifdef BRCM_CMS_BUILD
+ 		execchild(chansess);
++#endif
+ 		/* not reached */
+ 
+ 	} else {
+@@ -918,6 +938,132 @@ static void addchildpid(struct ChanSess
+ 
+ }
+ 
++#ifdef BRCM_CMS_BUILD
++/* Clean up, drop to user privileges, set up the environment and execute
++ * the command/shell. This function does not return. */
++static void execchild(const void *user_data) {
++// BRCM begin
++#ifndef SSHD_GENKEY
++	struct ChanSess *chansess = user_data;
++	char *usershell = NULL;
++	SINT32 msgfd; //brcm
++
++	cmsMsg_getEventHandle(msgHandle, &msgfd);
++
++	/* with uClinux we'll have vfork()ed, so don't want to overwrite the
++	 * hostkey. can't think of a workaround to clear it */
++#ifndef USE_VFORK
++	/* wipe the hostkey */
++	sign_key_free(svr_opts.hostkey);
++	svr_opts.hostkey = NULL;
++
++	/* overwrite the prng state */
++	seedrandom();
++#endif
++
++	/* clear environment */
++	/* if we're debugging using valgrind etc, we need to keep the LD_PRELOAD
++	 * etc. This is hazardous, so should only be used for debugging. */
++#ifndef DEBUG_VALGRIND
++#ifdef HAVE_CLEARENV
++/* BRCM:  we need the environ for our apps and LD_LIBRARY_PATH set in \etc\profile so comment the follwoing line
++     which clears the environment
++	clearenv();
++*/  
++#else /* don't HAVE_CLEARENV */
++	/* Yay for posix. */
++	if (environ) {
++		environ[0] = NULL;
++	}
++#endif /* HAVE_CLEARENV */
++#endif /* DEBUG_VALGRIND */
++
++#ifndef DESKTOP_LINUX
++	/* We can only change uid/gid as root ... */
++	if (getuid() == 0) {
++
++		if ((setgid(ses.authstate.pw_gid) < 0) ||
++			(initgroups(ses.authstate.pw_name, 
++						ses.authstate.pw_gid) < 0)) {
++			dropbear_exit("Error changing user group");
++		}
++		if (setuid(ses.authstate.pw_uid) < 0) {
++			dropbear_exit("Error changing user");
++		}
++	} else {
++		/* ... but if the daemon is the same uid as the requested uid, we don't
++		 * need to */
++
++		/* XXX - there is a minor issue here, in that if there are multiple
++		 * usernames with the same uid, but differing groups, then the
++		 * differing groups won't be set (as with initgroups()). The solution
++		 * is for the sysadmin not to give out the UID twice */
++		if (getuid() != ses.authstate.pw_uid) {
++			dropbear_exit("Couldn't	change user as non-root");
++		}
++	}
++
++	/* set env vars */
++	addnewvar("USER", ses.authstate.pw_name);
++	addnewvar("LOGNAME", ses.authstate.pw_name);
++	addnewvar("HOME", ses.authstate.pw_dir);
++	addnewvar("SHELL", get_user_shell());
++	// BRCM addnewvar("PATH", DEFAULT_PATH);
++	if (chansess->term != NULL) {
++		addnewvar("TERM", (char *)chansess->term);
++	}
++
++	if (chansess->tty) {
++		addnewvar("SSH_TTY", chansess->tty);
++	}
++	
++	if (chansess->connection_string) {
++		addnewvar("SSH_CONNECTION", chansess->connection_string);
++	}
++
++	if (chansess->client_string) {
++		addnewvar("SSH_CLIENT", chansess->client_string);
++	}
++	
++#ifdef ENABLE_SVR_PUBKEY_OPTIONS
++	if (chansess->original_command) {
++		addnewvar("SSH_ORIGINAL_COMMAND", chansess->original_command);
++	}
++#endif
++
++	/* change directory */
++	if (chdir(ses.authstate.pw_dir) < 0) {
++		dropbear_exit("Error changing directory");
++	}
++
++#ifndef DISABLE_X11FWD
++	/* set up X11 forwarding if enabled */
++	x11setauth(chansess);
++#endif
++#ifdef ENABLE_SVR_AGENTFWD
++	/* set up agent env variable */
++	svr_agentset(chansess);
++#endif
++
++	usershell = m_strdup(get_user_shell());
++	run_shell_command(chansess->cmd, ses.maxfd, usershell);
++#endif /* ifndef DESKTOP_LINUX */
++
++	// BRCM begin: 
++	signal(SIGCHLD, SIG_DFL);
++
++	/* go into CLI here */
++	cmsCli_run(msgHandle, SSHD_EXIT_ON_IDLE_TIMEOUT);
++
++	  exit(0);
++	// BRCM end
++	/* only reached on error */
++	dropbear_exit("Child failed");
++#endif // SSHD_GENKEY
++}
++#else /* BRCM_CMS_BUILD */
++
++// execchild source
+ /* Clean up, drop to user privileges, set up the environment and execute
+  * the command/shell. This function does not return. */
+ static void execchild(const void *user_data) {
+@@ -1023,6 +1169,7 @@ static void execchild(const void *user_d
+ 	/* only reached on error */
+ 	dropbear_exit("Child failed");
+ }
++#endif /* BRCM_CMS_BUILD */
+ 
+ /* Set up the general chansession environment, in particular child-exit
+  * handling */
+diff -Naurp dropbear-2019.78_orig/svr-main.c dropbear-2019.78/svr-main.c
+--- dropbear-2019.78_orig/svr-main.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/svr-main.c	2019-03-29 17:44:11.133025571 +0800
+@@ -31,87 +31,106 @@
+ #include "dbrandom.h"
+ #include "crypto_desc.h"
+ 
++// BRCM add next line
++#include <netinet/in.h>
++
++#ifdef BRCM_CMS_BUILD
++/* BASE64 is used only in libtomcrypt, but CMS also defines it as a type.
++ * undef it here to avoid conflict. todo: should rename BASE64 to TRxBASE64 in CMS*/
++#undef BASE64 
++#include "cms.h"
++#include "cms_params.h"
++#include "cms_util.h"
++#include "cms_core.h"
++#include "cms_dal.h"
++#include "cms_cli.h"
++#include "cms_msg.h"
++
++//void *msgHandle=NULL;
++extern void *msgHandle;
++CmsEntityId myEid = EID_SSHD;
++
++#endif  /* BRCM_CMS_BUILD */
++
++char curIpAddr[64]; /* hold IPv4 or IPv6 address of current connection */
++
++#ifndef BRCM_CMS_BUILD
++ static size_t listensockets(int *sock, size_t sockcount, int *maxfd);
++#endif
+ static size_t listensockets(int *sock, size_t sockcount, int *maxfd);
+ static void sigchld_handler(int dummy);
+ static void sigsegv_handler(int);
+ static void sigintterm_handler(int fish);
+-#if INETD_MODE
+-static void main_inetd(void);
+-#endif
+-#if NON_INETD_MODE
+-static void main_noinetd(void);
+-#endif
++
++// BRCM static void main_noinetd();
+ static void commonsetup(void);
+ 
+-#if defined(DBMULTI_dropbear) || !DROPBEAR_MULTI
+-#if defined(DBMULTI_dropbear) && DROPBEAR_MULTI
+-int dropbear_main(int argc, char ** argv)
+-#else
++
++
++#if 0
+ int main(int argc, char ** argv)
+-#endif
+ {
+ 	_dropbear_exit = svr_dropbear_exit;
+ 	_dropbear_log = svr_dropbear_log;
+ 
+-	disallow_core();
+-
+ 	/* get commandline options */
+ 	svr_getopts(argc, argv);
+ 
+-#if INETD_MODE
+-	/* service program mode */
+-	if (svr_opts.inetdmode) {
+-		main_inetd();
+-		/* notreached */
+-	}
+-#endif
+-
+-#if NON_INETD_MODE
+ 	main_noinetd();
+ 	/* notreached */
+-#endif
+ 
+ 	dropbear_exit("Compiled without normal mode, can't run without -i\n");
+ 	return -1;
+ }
+ #endif
+ 
+-#if INETD_MODE
+-static void main_inetd() {
+-	char *host, *port = NULL;
++// BRCM begin
++int glbAccessMode;       /* global var to keep track of which side of the network we are accessed from */
++void dropbear_main(void);
++ 
++	/* notreached */
++#ifdef BRCM_CMS_BUILD
++static void initLoggingFromConfig(UBOOL8 useConfiguredLogLevel)
++{
++	SshdCfgObject *obj;
++	InstanceIdStack iidStack = EMPTY_INSTANCE_ID_STACK;
++	CmsRet ret;
+ 
+-	/* Set up handlers, syslog, seed random */
+-	commonsetup();
++	if ((ret = cmsLck_acquireLockWithTimeout(CLI_BOOTUP_LOCK_TIMEOUT)) != CMSRET_SUCCESS)
++	{
++		cmsLog_error("failed to get lock, ret=%d", ret);
++		return;
++	}
+ 
+-#if DEBUG_TRACE
+-	if (debug_trace) {
+-		/* -v output goes to stderr which would get sent over the inetd network socket */
+-		dropbear_exit("Dropbear inetd mode is incompatible with debug -v");
++	if ((ret = cmsObj_get(MDMOID_SSHD_CFG, &iidStack, 0, (void **) &obj)) != CMSRET_SUCCESS)
++	{
++		cmsLog_error("get of SSHD_CFG object failed, ret=%d", ret);
+ 	}
+-#endif
++	else
++	{
++		if (useConfiguredLogLevel)
++		{
++			cmsLog_setLevel(cmsUtl_logLevelStringToEnum(obj->loggingLevel));
++		}
+ 
+-	/* In case our inetd was lax in logging source addresses */
+-	get_socket_address(0, NULL, NULL, &host, &port, 0);
+-	dropbear_log(LOG_INFO, "Child connection from %s:%s", host, port);
+-	m_free(host);
+-	m_free(port);
+-
+-	/* Don't check the return value - it may just fail since inetd has
+-	 * already done setsid() after forking (xinetd on Darwin appears to do
+-	 * this */
+-	setsid();
+-
+-	/* Start service program 
+-	 * -1 is a dummy childpipe, just something we can close() without 
+-	 * mattering. */
+-	svr_session(0, -1);
++		cmsLog_setDestination(cmsUtl_logDestinationStringToEnum(obj->loggingDestination));
++
++		cmsObj_free((void **) &obj);
++	}
++
++	cmsLck_releaseLock();
+ 
+-	/* notreached */
+ }
+-#endif /* INETD_MODE */
++#endif /* BRCM_CMD_BUILD */
++
++
++#ifdef BRCM_CMS_BUILD
++int main(int argc, char **argv) {
++#else
++//void dropbear_main(void) {
++void main(void) {
++#endif
+ 
+-#if NON_INETD_MODE
+-static void main_noinetd() {
+ 	fd_set fds;
+ 	unsigned int i, j;
+ 	int val;
+@@ -126,6 +145,22 @@ static void main_noinetd() {
+ 	int childsock;
+ 	int childpipe[2];
+ 
++#ifdef BRCM_CMS_BUILD
++	char connIfName[CMS_IFNAME_LENGTH]={0};
++	char remoteIpAddr[BUFLEN_64];  /* mwang_todo: should verify that sshd only supports one login at a time, otherwise, this global var will get overwritten */
++	char *pRemoteIpAddr;
++	SINT32 shmId=UNINITIALIZED_SHM_ID;
++	CmsLogLevel logLevel=DEFAULT_LOG_LEVEL;
++	UBOOL8 useConfiguredLogLevel=TRUE;
++	SINT32 c, logLevelNum;
++	CmsRet ret;
++#endif
++
++	disallow_core();
++
++	/* get commandline options */
++	svr_getopts(argc, argv);
++
+ 	/* Note: commonsetup() must happen before we daemon()ise. Otherwise
+ 	   daemon() will chdir("/"), and we won't be able to find local-dir
+ 	   hostkeys. */
+@@ -136,18 +171,85 @@ static void main_noinetd() {
+ 		childpipes[i] = -1;
+ 	}
+ 	memset(preauth_addrs, 0x0, sizeof(preauth_addrs));
+-	
++
++#ifdef BRCM_CMS_BUILD
++
++	cmsLog_initWithName(myEid, argv[0]);
++
++	while ((c = getopt(argc, argv, "v:m:")) != -1)
++	{
++		switch(c)
++		{
++			case 'm':
++				shmId = atoi(optarg);
++				break;
++
++			case 'v':
++				logLevelNum = atoi(optarg);
++				if (logLevelNum == 0)
++				{
++					logLevel = LOG_LEVEL_ERR;
++				}
++				else if (logLevelNum == 1)
++				{
++					logLevel = LOG_LEVEL_NOTICE;
++				}
++				else
++				{
++					logLevel = LOG_LEVEL_DEBUG;
++				}
++				cmsLog_setLevel(logLevel);
++				useConfiguredLogLevel = FALSE;
++				break;
++
++			default:
++				cmsLog_error("bad arguments, exit");
++				cmsLog_cleanup();
++				exit(-1);
++		}
++	}
++
++
++	/*
++	* Initialize our message link back to smd.
++	*/
++	cmsMsg_initWithFlags(myEid, 0, &msgHandle);
++
++	/*
++	* Initialize MDM.  Even though sshd does not use it, the underlying CLI needs it.
++	*/
++	if ((ret = cmsMdm_initWithAcc(myEid, NDA_ACCESS_SSHD, msgHandle, &shmId)) != CMSRET_SUCCESS)
++	{
++		cmsLog_error("Could not initialize MDM, ret=%d", ret);
++		exit(-1);
++	}
++
++	initLoggingFromConfig(useConfiguredLogLevel);
++
++
++	/*
++	* In CMS, smd will initially listen on the sshd server port
++	* and then give the fd to sshd when it launches sshd.
++	* By convention, the server fd is always at CMS_DYNAMIC_LAUNCH_SERVER_FD
++	*/
++	listensocks[0] = CMS_DYNAMIC_LAUNCH_SERVER_FD;
++	maxsock = listensocks[0];
++	listensockcount = 1;
++#else	
+ 	/* Set up the listening sockets */
+ 	listensockcount = listensockets(listensocks, MAX_LISTEN_ADDR, &maxsock);
+ 	if (listensockcount == 0)
+ 	{
+ 		dropbear_exit("No listening ports available.");
+ 	}
++#endif
+ 
+ 	for (i = 0; i < listensockcount; i++) {
+ 		FD_SET(listensocks[i], &fds);
+ 	}
+ 
++// BRCM begin
++#if 0 
+ 	/* fork */
+ 	if (svr_opts.forkbg) {
+ 		int closefds = 0;
+@@ -167,13 +269,17 @@ static void main_noinetd() {
+ 	} else {
+ 		dropbear_log(LOG_INFO, "Not backgrounding");
+ 	}
++#endif
++// BRCM end
+ 
++#ifndef BRCM_CMS_BUILD
+ 	/* create a PID file so that we can be killed easily */
+ 	pidfile = fopen(svr_opts.pidfile, "w");
+ 	if (pidfile) {
+ 		fprintf(pidfile, "%d\n", getpid());
+ 		fclose(pidfile);
+ 	}
++#endif
+ 
+ 	/* incoming connection select loop */
+ 	for(;;) {
+@@ -236,14 +342,67 @@ static void main_noinetd() {
+ 				continue;
+ 
+ 			remoteaddrlen = sizeof(remoteaddr);
+-			childsock = accept(listensocks[i], 
+-					(struct sockaddr*)&remoteaddr, &remoteaddrlen);
+-
++			childsock = accept(listensocks[i], (struct sockaddr*)&remoteaddr, (socklen_t *)&remoteaddrlen);
+ 			if (childsock < 0) {
+ 				/* accept failed */
+ 				continue;
+ 			}
+ 
++         // Keven - begin
++#ifdef BRCM_CMS_BUILD
++#ifdef SUPPORT_IPV6
++         remoteIpAddr[0] = '\0';
++         inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)&remoteaddr)->sin6_addr), remoteIpAddr, sizeof(remoteIpAddr));
++
++         /* see if this is a IPv4-Mapped IPv6 address (::ffff:xxx.xxx.xxx.xxx) */
++         if (strchr(remoteIpAddr, '.') && strstr(remoteIpAddr, ":ffff:"))
++         {
++            /* IPv4 client */
++            
++            /* convert address to clean ipv4 address */
++            pRemoteIpAddr = strrchr(remoteIpAddr, ':') + 1;
++         }
++         else
++         {
++            /* IPv6 client */
++            pRemoteIpAddr = &remoteIpAddr[0];
++         }
++#else
++         strcpy(remoteIpAddr, inet_ntoa(((struct sockaddr_in *) &remoteaddr)->sin_addr));
++         pRemoteIpAddr = &remoteIpAddr[0];
++#endif /* SUPPORT_IPV6 */
++
++         if ((ret = cmsLck_acquireLockWithTimeout(CLI_BOOTUP_LOCK_TIMEOUT)) != CMSRET_SUCCESS)
++         {
++            cmsLog_error("failed to get lock, ret=%d", ret);
++            return -1;
++         }
++
++         cmsImg_saveIfNameFromSocket(childsock, connIfName);
++#ifndef DESKTOP_LINUX
++         if (cmsUtl_strstr(connIfName,"br0") == NULL)
++         {
++            glbAccessMode = NETWORK_ACCESS_WAN_SIDE;
++         }
++         else
++#endif /* DESKTOP_LINUX */
++         {
++            glbAccessMode = NETWORK_ACCESS_LAN_SIDE;
++         }
++
++         cmsLck_releaseLock();
++
++         /* update cli lib with the application data */
++         cmsCli_setAppData("SSHD", pRemoteIpAddr, NULL, SSHD_PORT);
++
++         memset(&curIpAddr[0], 0, sizeof(curIpAddr));
++         strncpy(&curIpAddr[0], pRemoteIpAddr, MIN(sizeof(curIpAddr), strlen(pRemoteIpAddr)));
++
++         cmsLog_debug("access from client ip=%s", pRemoteIpAddr);
++#endif /* BRCM_CMS_BUILD */
++
++         // Keven - end
++
+ 			/* Limit the number of unauthenticated connections per IP */
+ 			getaddrstring(&remoteaddr, &remote_host, NULL, 0);
+ 
+@@ -302,7 +461,9 @@ static void main_noinetd() {
+ #endif /* DEBUG_FORKGPROF */
+ 
+ 				getaddrstring(&remoteaddr, NULL, &remote_port, 0);
+-				dropbear_log(LOG_INFO, "Child connection from %s:%s", remote_host, remote_port);
++				// BRCM
++				//dropbear_log(LOG_INFO, "Child connection from %s:%s", remote_host, remote_port);
++				
+ 				m_free(remote_host);
+ 				m_free(remote_port);
+ 
+@@ -336,8 +497,6 @@ out:
+ 
+ 	/* don't reach here */
+ }
+-#endif /* NON_INETD_MODE */
+-
+ 
+ /* catch + reap zombie children */
+ static void sigchld_handler(int UNUSED(unused)) {
+@@ -408,6 +567,7 @@ static void commonsetup() {
+ 	seedrandom();
+ }
+ 
++#ifndef BRCM_CMS_BUILD
+ /* Set up listening sockets for all the requested ports */
+ static size_t listensockets(int *socks, size_t sockcount, int *maxfd) {
+ 
+@@ -446,3 +606,4 @@ static size_t listensockets(int *socks,
+ 	}
+ 	return sockpos;
+ }
++#endif  /* BRCM_CMS_BUILD */
+diff -Naurp dropbear-2019.78_orig/svr-runopts.c dropbear-2019.78/svr-runopts.c
+--- dropbear-2019.78_orig/svr-runopts.c	2019-03-27 22:15:23.000000000 +0800
++++ dropbear-2019.78/svr-runopts.c	2019-03-29 17:44:11.133025571 +0800
+@@ -135,7 +135,9 @@ void svr_getopts(int argc, char ** argv)
+ 	svr_opts.bannerfile = NULL;
+ 	svr_opts.banner = NULL;
+ 	svr_opts.forced_command = NULL;
+-	svr_opts.forkbg = 1;
++	// BRCM
++	svr_opts.forkbg = 0;
++
+ 	svr_opts.norootlogin = 0;
+ #ifdef HAVE_GETGROUPLIST
+ 	svr_opts.restrict_group = NULL;
+@@ -179,6 +181,7 @@ void svr_getopts(int argc, char ** argv)
+ 	opts.listen_fwd_all = 0;
+ #endif
+ 
++#ifndef BRCM_CMS_BUILD
+ 	for (i = 1; i < (unsigned int)argc; i++) {
+ 		if (argv[i][0] != '-' || argv[i][1] == '\0')
+ 			dropbear_exit("Invalid argument: %s", argv[i]);
+@@ -318,6 +321,7 @@ void svr_getopts(int argc, char ** argv)
+ 			}
+ 		}
+ 	}
++#endif
+ 
+ 	/* Set up listening ports */
+ 	if (svr_opts.portcount == 0) {

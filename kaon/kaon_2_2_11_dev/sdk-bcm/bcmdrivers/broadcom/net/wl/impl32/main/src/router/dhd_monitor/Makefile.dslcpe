@@ -1,0 +1,46 @@
+# dhd_monitor makefile
+
+include $(SRCBASE)/router/.config
+
+BUILD_DIR=$(word 1, $(subst /bcmdrivers, /bcmdrivers,$(shell pwd)))
+#include $(BUILD_DIR)/make.common
+
+CFLAGS += -Iinclude
+CFLAGS += -I../../include
+CFLAGS += -I../../common/include
+CFLAGS += -I../../include/bcmcrypto
+CFLAGS += -I../../shared
+CFLAGS += -I../../router/shared
+CFLAGS += -I../../shared/bcmwifi/include
+CFLAGS += -DDSLCPE -DDSLCPE_ENDIAN
+CFLAGS += -Wall
+CFLAGS += -DPKTC
+CFLAGS += -DBCMDBG
+#CFLAGS += -DDEBUG
+CFLAGS  += -DWL11AC_80P80 -DWL11AC_160
+
+
+LDFLAGS = -Os
+LDFLAGS += -L$(EXTRALIBDIR)
+LDFLAGS += -lc
+LDFLAGS += -lgcc_s
+LDFLAGS += -L$(INSTALL_DIR)/lib
+LDFLAGS += -lnvram
+ifeq ($(DSLCPE_WLCSM_EXT),1)
+LDFLAGS += -lwlcsm
+endif
+LDFLAGS += -lwlbcmcrypto
+LDFLAGS += -lwlbcmshared
+OBJS := dhd_monitor.o
+
+all: dhd_monitor
+clean:
+	rm -f *.o dhd_monitor
+
+install: all
+	install -d $(INSTALLDIR)/bin
+	install -m 0755 dhd_monitor $(INSTALLDIR)/bin
+	$(STRIP) $(INSTALLDIR)/bin/dhd_monitor
+
+dhd_monitor: $(OBJS)
+	$(CC) -o $@ $^ $(LDFLAGS)

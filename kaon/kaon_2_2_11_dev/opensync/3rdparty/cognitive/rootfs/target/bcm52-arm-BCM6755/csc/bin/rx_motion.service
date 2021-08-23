@@ -1,0 +1,40 @@
+#!/bin/sh
+
+while true; do
+    # wait for client APs to come up
+    while ! ifconfig | grep -q 'wl[0-2].2'; do sleep 10; done
+
+    while true; do
+        sleep 10
+        WL_IFS=`/usr/opensync/tools/ovsh s -r Wifi_VIF_Config -w enabled==true if_name | grep 'wl[0-9].[0-9]'`
+        [ ! -z "$WL_IFS" ] && break
+    done
+
+    rm -rf /tmp/csc_wl_devices
+    
+    for WL in $WL_IFS; do
+        #make sure WL is up and running
+        while true; do
+            wl -i $WL ver | grep -q Broadcom && break
+            sleep 10
+        done
+
+        CSI_READY=false
+        WL_UP=`wl -i ${WL} isup`
+        if [ "$WL_UP" -eq "1" ]; then
+            wl -i $WL csimon state | grep -q "CSI" && CSI_READY=true
+            if [ $CSI_READY = true ]; then
+                echo "$WL" | grep -q 'wl[0-2].1' && IFTYPE="AP" || IFTYPE="MESH"
+                echo "$WL $IFTYPE" >> /tmp/csc_wl_devices
+                wl -i $WL csimon enable
+            fi
+        fi
+    done
+
+    echo "23" > /tmp/csc_nl_subsys
+    echo "22" >> /tmp/csc_nl_subsys
+    #echo "24" >> /tmp/csc_nl_subsys
+
+    killall micropython 2>/dev/null
+    /csc/bin/rx_motion 2>&1 | logger -t rx_motion
+done >/dev/null 2>/dev/null

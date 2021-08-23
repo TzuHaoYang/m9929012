@@ -1,0 +1,409 @@
+--- a/kernel/linux-4.1/drivers/pwm/Makefile
++++ b/kernel/linux-4.1/drivers/pwm/Makefile
+@@ -35,3 +35,4 @@ obj-$(CONFIG_PWM_TIPWMSS)	+= pwm-tipwmss
+ obj-$(CONFIG_PWM_TWL)		+= pwm-twl.o
+ obj-$(CONFIG_PWM_TWL_LED)	+= pwm-twl-led.o
+ obj-$(CONFIG_PWM_VT8500)	+= pwm-vt8500.o
++obj-$(CONFIG_PWM_BCM6755)	+= pwm-bcm6755.o
+--- /dev/null
++++ b/kernel/linux-4.1/drivers/pwm/pwm-bcm6755.c
+@@ -0,0 +1,184 @@
++/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
++ *
++ * Permission to use, copy, modify, and/or distribute this software for any
++ * purpose with or without fee is hereby granted, provided that the above
++ * copyright notice and this permission notice appear in all copies.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
++ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
++ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
++ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
++ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
++ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
++ *
++ */
++
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/pwm.h>
++#include <linux/slab.h>
++#include <linux/delay.h>
++#include <linux/clk.h>
++#include <linux/err.h>
++#include <linux/io.h>
++
++
++#define MAX_PWM_DEVICES 2
++/* The default period and duty cycle values to be configured. */
++#define DEFAULT_PERIOD_NS       10*1000 // 10ms
++#define DEFAULT_DUTY_CYCLE_NS   5*1000
++
++static ssize_t count;
++static uint32_t used_pwm[MAX_PWM_DEVICES];
++static uint32_t pwm_offset[MAX_PWM_DEVICES];
++static uint32_t pwm_gpio[MAX_PWM_DEVICES];
++
++static void config_div_and_duty(struct pwm_device *pwm, int period_ns, int duty_ns)
++{
++	extern void led_set_brightnesscfg(unsigned int gpio_num, unsigned int brightness);
++	extern void led_set_active(unsigned int gpio_num, unsigned int enable);
++
++	u32 brightness;
++
++	brightness = (duty_ns * 128)/period_ns;
++	led_set_brightnesscfg(pwm_offset[pwm->hwpwm], brightness);
++
++	/* configure activate register */
++	led_set_active(pwm_offset[pwm->hwpwm], 1);
++}
++
++static int bcm6755_pwm_enable(struct pwm_chip *chip, struct pwm_device *pwm)
++{
++	return 0;
++}
++
++static void bcm6755_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
++{
++}
++
++static int bcm6755_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
++						int duty_ns, int period_ns)
++{
++	config_div_and_duty(pwm, period_ns, duty_ns);
++
++	return 0;
++}
++
++static int bcm6755_pwm_request(struct pwm_chip *chip, struct pwm_device *pwm)
++{
++	extern void kerSysSetGpioDir(unsigned short bpGpio);
++	extern void led_set_sw_data(unsigned int gpio_num, unsigned int enable);
++	extern void led_set_polarity(unsigned int gpio_num, unsigned int polarity);
++
++	if (!used_pwm[pwm->hwpwm])
++		return -EINVAL;
++
++	/* configure GPIO direction */
++	kerSysSetGpioDir(pwm_gpio[pwm->hwpwm]);
++
++	/* enable input register which controls actual input value */
++	led_set_sw_data(pwm_offset[pwm->hwpwm], 1);
++
++	/* set led polarity to active high mode for fan */
++	if (pwm->hwpwm == 1)
++		led_set_polarity(pwm_offset[pwm->hwpwm], 1);
++
++	pwm->period = DEFAULT_PERIOD_NS;
++	pwm->duty_cycle = DEFAULT_DUTY_CYCLE_NS;
++
++	bcm6755_pwm_config(chip, pwm, pwm->duty_cycle, pwm->period);
++
++	return 0;
++}
++
++static void bcm6755_pwm_free(struct pwm_chip *chip, struct pwm_device *pwm)
++{
++}
++
++
++static struct pwm_ops bcm6755_pwm_ops = {
++	.request = bcm6755_pwm_request,
++	.free = bcm6755_pwm_free,
++	.config = bcm6755_pwm_config,
++	.enable = bcm6755_pwm_enable,
++	.disable = bcm6755_pwm_disable,
++	.owner = THIS_MODULE,
++};
++
++static int bcm6755_pwm_probe(struct platform_device *pdev)
++{
++	struct pwm_chip *pwm;
++	struct device *dev;
++	unsigned int base_index;
++	int ret;
++
++	dev = &pdev->dev;
++	pwm = devm_kzalloc(dev, sizeof(*pwm), GFP_KERNEL);
++	if (!pwm) {
++		dev_err(dev, "failed to allocate memory\n");
++		return -ENOMEM;
++	}
++
++	platform_set_drvdata(pdev, pwm);
++
++	if (of_property_read_u32(dev->of_node, "pwm-base-index", &base_index))
++		base_index = 0;
++
++	count = of_property_count_u32_elems(dev->of_node, "used-pwm-indices");
++
++	if (of_property_read_u32_array(dev->of_node, "used-pwm-indices",
++			used_pwm, count))
++		return -EINVAL;
++
++	if (of_property_read_u32_array(dev->of_node, "pwm-offset",
++			pwm_offset, count))
++		return -EINVAL;
++
++	if (of_property_read_u32_array(dev->of_node, "pwm-gpio",
++			pwm_gpio, count))
++		return -EINVAL;
++
++	pwm->dev = dev;
++	pwm->ops = &bcm6755_pwm_ops;
++	pwm->base = base_index;
++	pwm->npwm = count;
++	pwm->can_sleep = false;
++
++	ret = pwmchip_add(pwm);
++	if (ret < 0) {
++		dev_err(dev, "pwmchip_add() failed: %d\n", ret);
++		return ret;
++	}
++
++	return 0;
++}
++
++static int bcm6755_pwm_remove(struct platform_device *pdev)
++{
++	struct pwm_chip *pwm = platform_get_drvdata(pdev);
++
++	return pwmchip_remove(pwm);
++}
++
++static const struct of_device_id pwm_msm_dt_match[] = {
++	{
++		.compatible = "plume,bcm6755-pwm",
++	},
++	{}
++};
++
++static struct platform_driver bcm6755_pwm_driver = {
++	.driver = {
++		.name = "bcm6755-pwm",
++		.owner = THIS_MODULE,
++		.of_match_table = pwm_msm_dt_match,
++	},
++	.probe = bcm6755_pwm_probe,
++	.remove = bcm6755_pwm_remove,
++};
++
++module_platform_driver(bcm6755_pwm_driver);
++
++MODULE_LICENSE("Dual BSD/GPL");
++
+--- a/kernel/dts/47622/947622.dts
++++ b/kernel/dts/47622/947622.dts
+@@ -95,6 +95,27 @@
+ 		};
+ 	};
+ 
++#if defined (CONFIG_PWM_BCM6755)
++	pwm: pwm {
++		compatible = "plume,bcm6755-pwm";
++		used-pwm-indices = <1>, <1>;
++		pwm-offset = <22>, <24>;
++		pwm-gpio = <62>, <64>;
++		#pwm-cells = <2>;
++	};
++
++	plume_pwmled {
++		compatible = "pwm-leds";
++
++		white {
++			label = "white";
++			pwms = <&pwm 0 10000>;
++			default-brightness = <0>;
++			linux,default-trigger = "breathe";
++		};
++	};
++#endif
++
+ #if defined (CONFIG_OPTEE)
+ 	psci {
+ 		compatible	= "arm,psci-0.2";
+--- a/bcmdrivers/opensource/char/board/bcm963xx/impl1/bcm63xx_led.c
++++ b/bcmdrivers/opensource/char/board/bcm963xx/impl1/bcm63xx_led.c
+@@ -133,6 +133,8 @@ static void ledTimerExpire(void);
+ static void ledTimerExpire(struct timer_list*);
+ #endif
+ 
++/* This spinlock is used for accessing Color LED registers */
++static spinlock_t brcm_cledlock;
+ //**************************************************************************************
+ // LED operations
+ //**************************************************************************************
+@@ -397,6 +399,7 @@ void __init boardLedInit(void)
+     short gpio;
+ 
+     spin_lock_init(&brcm_ledlock);
++    spin_lock_init(&brcm_cledlock);
+ 
+     gLedCtrl = (PLED_CTRL) kmalloc((kLedEnd * sizeof(LED_CTRL)), GFP_KERNEL);
+ 
+@@ -528,6 +531,56 @@ void boardLedCtrl(BOARD_LED_NAME ledName
+     spin_unlock_irqrestore(&brcm_ledlock, flags);
+ }
+ 
++void led_set_sw_data(unsigned int gpio_num, unsigned int enable)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&brcm_cledlock, flags);
++	bcm_led_set_sw_data(gpio_num, enable);
++	spin_unlock_irqrestore(&brcm_cledlock, flags);
++}
++EXPORT_SYMBOL(led_set_sw_data);
++
++void led_set_brightnesscfg(unsigned int gpio_num, unsigned int brightness)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&brcm_cledlock, flags);
++	bcm_led_set_cfg(gpio_num, brightness);
++	spin_unlock_irqrestore(&brcm_cledlock, flags);
++}
++EXPORT_SYMBOL(led_set_brightnesscfg);
++
++void led_set_breathecfg(unsigned int gpio_num, unsigned int config[])
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&brcm_cledlock, flags);
++	bcm_led_set_cfg_all(gpio_num, config);
++	spin_unlock_irqrestore(&brcm_cledlock, flags);
++}
++EXPORT_SYMBOL(led_set_breathecfg);
++
++void led_set_active(unsigned int gpio_num, unsigned int enable)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&brcm_cledlock, flags);
++	bcm_led_set_active(gpio_num, enable);
++	spin_unlock_irqrestore(&brcm_cledlock, flags);
++}
++EXPORT_SYMBOL(led_set_active);
++
++void led_set_polarity(unsigned int gpio_num, unsigned int polarity)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&brcm_cledlock, flags);
++	bcm_led_set_polarity(gpio_num, polarity);
++	spin_unlock_irqrestore(&brcm_cledlock, flags);
++}
++EXPORT_SYMBOL(led_set_polarity);
++
+ #if defined(CONFIG_NEW_LEDS)
+ #include <linux/leds.h>
+ #define LED_AUTONAME_MAX_SIZE    25
+--- a/bcmdrivers/opensource/include/bcm963xx/board.h
++++ b/bcmdrivers/opensource/include/bcm963xx/board.h
+@@ -440,6 +440,19 @@ extern void kerSysSetGpioDirLocked(unsig
+ extern int kerSysSetGpioDirInput(unsigned short bpGpio);
+ extern int kerSysGetGpioValue(unsigned short bpGpio);
+ 
++#ifdef CONFIG_PWM_BCM6755
++extern void bcm_led_set_sw_data(unsigned int gpio_num, unsigned int enable);
++extern void bcm_led_set_cfg(unsigned int gpio_num, unsigned int cfg);
++extern void bcm_led_set_cfg_all(unsigned int gpio_num, unsigned int cfg[]);
++extern void bcm_led_set_active(unsigned int gpio_num, unsigned int enable);
++extern void bcm_led_set_polarity(unsigned int gpio_num, unsigned int polarity);
++#else
++static inline void bcm_led_set_sw_data(unsigned int gpio_num, unsigned int enable) {}
++static inline void bcm_led_set_cfg(unsigned int gpio_num, unsigned int cfg) {}
++static inline void bcm_led_set_cfg_all(unsigned int gpio_num, unsigned int cfg[]) {}
++static inline void bcm_led_set_active(unsigned int gpio_num, unsigned int enable) {}
++static inline void bcm_led_set_polarity(unsigned int gpio_num, unsigned int polarity) {}
++#endif
+ 
+ // for the voice code, which has too many kernSysSetGpio to change
+ #define kerSysSetGpio kerSysSetGpioState
+--- a/shared/opensource/drivers/bcm_led_impl4.c
++++ b/shared/opensource/drivers/bcm_led_impl4.c
+@@ -267,6 +267,60 @@ void bcm_common_led_setAllSoftLedsOff(vo
+     return;
+ }
+ 
++void bcm_led_set_sw_data(unsigned int gpio_num, unsigned int enable)
++{
++	if (enable)
++		LED->SwData |= GPIO_NUM_TO_MASK(gpio_num);
++	else
++		LED->SwData &= ~GPIO_NUM_TO_MASK(gpio_num);
++}
++#ifndef _CFE_
++EXPORT_SYMBOL(bcm_led_set_sw_data);
++#endif
++
++void bcm_led_set_cfg(unsigned int gpio_num, unsigned int cfg)
++{
++	LED->LedCfg[gpio_num].config[0] = cfg << 6;
++	LED->LedCfg[gpio_num].config[1] = 0;
++	LED->LedCfg[gpio_num].config[2] = 0;
++}
++#ifndef _CFE_
++EXPORT_SYMBOL(bcm_led_set_cfg);
++#endif
++
++void bcm_led_set_cfg_all(unsigned int gpio_num, unsigned int cfg[])
++{
++	LED->LedCfg[gpio_num].config[0] = cfg[0];
++	LED->LedCfg[gpio_num].config[1] = cfg[1];
++	LED->LedCfg[gpio_num].config[2] = cfg[2];
++}
++#ifndef _CFE_
++EXPORT_SYMBOL(bcm_led_set_cfg_all);
++#endif
++
++void bcm_led_set_active(unsigned int gpio_num, unsigned int enable)
++{
++	if (enable)
++		LED->ChnActive |= GPIO_NUM_TO_MASK(gpio_num);
++	else
++		LED->ChnActive &= ~GPIO_NUM_TO_MASK(gpio_num);
++}
++#ifndef _CFE_
++EXPORT_SYMBOL(bcm_led_set_active);
++#endif
++
++void bcm_led_set_polarity(unsigned int gpio_num, unsigned int polarity)
++{
++	if (polarity)
++		LED->ParallelLedPolarity |= GPIO_NUM_TO_MASK(gpio_num);
++	else
++		LED->ParallelLedPolarity &= ~GPIO_NUM_TO_MASK(gpio_num);
++}
++#ifndef _CFE_
++EXPORT_SYMBOL(bcm_led_set_polarity);
++#endif
++
++
+ void bcm_common_led_setInitial(void)
+ {
+     unsigned short gpio;
+--- a/kernel/linux-4.1/drivers/pwm/Kconfig
++++ b/kernel/linux-4.1/drivers/pwm/Kconfig
+@@ -373,4 +373,7 @@ config PWM_VT8500
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called pwm-vt8500.
+ 
++config PWM_BCM6755
++	tristate "BCM6755 PWM support"
++	depends on PWM
+ endif
+--- a/kernel/dts/gen_dt_bindings
++++ b/kernel/dts/gen_dt_bindings
+@@ -49,6 +49,11 @@ then
+ 	echo "#define CONFIG_BCM_CMA_RSVMEM ${CONFIG_BCM_CMA_RSVMEM}" >> ${2}
+ fi
+ 
++if [ "${CONFIG_PWM_BCM6755}" == "m" -o "${CONFIG_PWM_BCM6755}" == "y" ]
++then
++	echo "#define CONFIG_PWM_BCM6755 ${CONFIG_PWM_BCM6755}" >> ${2}
++fi
++
+ # Support string defines like:
+ # #define SOMETHING "something"
+ # The input here will be ' #define "SOMETHING" "something" ' which means
